@@ -36,7 +36,7 @@
 
 1. 克隆本仓库
    ```bash
-   git clone [仓库URL]
+   git clone https://github.com/rice-awa/AutoGradAI.git
    cd AutoGradAI
    ```
 
