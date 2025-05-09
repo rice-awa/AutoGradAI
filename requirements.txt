@@ -1,0 +1,5 @@
+flask>=2.0.0
+langchain-core>=0.1.0
+langchain-openai>=0.0.5
+langchain-deepseek>=0.0.1
+python-dotenv>=1.0.0

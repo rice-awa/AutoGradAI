@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>批改结果</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <style>
+        /* 流式加载样式 */
+        .loading-indicator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            color: #666;
+        }
+        
+        .loading-spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(0, 123, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #007bff;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .placeholder {
+            background-color: #f1f1f1;
+            color: transparent;
+            border-radius: 4px;
+            animation: pulse 1.5s infinite;
+            margin: 5px 0;
+            height: 1em;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+        
+        .placeholder-short { width: 30%; }
+        .placeholder-medium { width: 60%; }
+        .placeholder-long { width: 90%; }
+        
+        /* 历史记录相关样式 */
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .result-title {
+            font-size: 28px;
+            color: #333;
+            margin: 0;
+        }
+        
+        .history-info {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .history-timestamp {
+            display: flex;
+            align-items: center;
+            color: #666;
+        }
+        
+        .history-timestamp i {
+            margin-right: 8px;
+            color: #007bff;
+        }
+        
+        .history-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn-history {
+            display: inline-flex;
+            align-items: center;
+            padding: 8px 16px;
+            background-color: #6c757d;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        
+        .btn-history i {
+            margin-right: 8px;
+        }
+        
+        .btn-history:hover {
+            background-color: #5a6268;
+        }
+        
+        /* 错误分析样式增强 */
+        .grammar-rule {
+            background-color: #f0f7ff;
+            padding: 10px;
+            border-left: 3px solid #007bff;
+            margin: 10px 0;
+            border-radius: 0 4px 4px 0;
+        }
+        
+        .correct-form {
+            margin: 10px 0;
+        }
+        
+        .correct-text {
+            background-color: #e8f5e9;
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: #2e7d32;
+            font-weight: 500;
+        }
+        
+        .error-detail {
+            padding: 15px;
+            background-color: #fafafa;
+            border-radius: 0 0 8px 8px;
+        }
+        
+        /* 亮点分析样式优化 - 修改为横向排版 */
+        .highlight-grid {
+            display: block;
+        }
+        
+        .highlight-category {
+            margin-bottom: 25px;
+        }
+        
+        .highlight-category h3 {
+            margin-bottom: 15px;
+            color: #2e7d32;
+            border-bottom: 2px solid #2e7d32;
+            padding-bottom: 8px;
+            display: inline-block;
+        }
+        
+        .highlight-items-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .highlight-item {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            overflow: hidden;
+            transition: transform 0.2s, box-shadow 0.2s;
+            flex: 0 0 calc(33.333% - 15px);
+            max-width: calc(33.333% - 15px);
+            margin-bottom: 0;
+        }
+        
+        @media (max-width: 992px) {
+            .highlight-item {
+                flex: 0 0 calc(50% - 15px);
+                max-width: calc(50% - 15px);
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .highlight-item {
+                flex: 0 0 100%;
+                max-width: 100%;
+            }
+        }
+        
+        .highlight-item:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .highlight-content {
+            padding: 15px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .highlight-text {
+            display: inline-block;
+            font-weight: 500;
+            color: #2e7d32;
+            background-color: #e8f5e9;
+            padding: 3px 8px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        
+        .highlight-reason {
+            color: #555;
+            margin: 10px 0 0 0;
+            line-height: 1.5;
+        }
+        
+        .highlight-examples {
+            padding: 15px;
+            background-color: #fafafa;
+        }
+        
+        .other-usages, .similar-expressions {
+            margin-bottom: 15px;
+        }
+        
+        .other-usages h4, .similar-expressions h4 {
+            color: #555;
+            font-size: 14px;
+            margin: 0 0 8px 0;
+            display: flex;
+            align-items: center;
+        }
+        
+        .other-usages h4 i, .similar-expressions h4 i {
+            margin-right: 8px;
+            color: #007bff;
+        }
+        
+        .usage-list, .expression-list {
+            list-style-type: none;
+            padding-left: 25px;
+            margin: 8px 0;
+        }
+        
+        .usage-list li, .expression-list li {
+            position: relative;
+            padding: 4px 0;
+            color: #666;
+        }
+        
+        .usage-list li:before, .expression-list li:before {
+            content: "•";
+            position: absolute;
+            left: -15px;
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="result-header">
+            <h1 class="result-title">批改结果</h1>
+            {% if from_history %}
+                <a href="{{ url_for('correction_history_page') }}" class="back-btn"><i class="fas fa-arrow-left"></i> 返回历史记录</a>
+            {% else %}
+                <a href="/" class="back-btn"><i class="fas fa-arrow-left"></i> 返回修改</a>
+            {% endif %}
+        </div>
+
+        {% if from_history and timestamp %}
+        <div class="history-info">
+            <div class="history-timestamp">
+                <i class="far fa-clock"></i> 批改时间：{{ timestamp }}
+            </div>
+            <div class="history-actions">
+                <a href="{{ url_for('correction_history_page') }}" class="btn-history">
+                    <i class="fas fa-history"></i> 查看所有历史
+                </a>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if stream_mode and not is_completed %}
+        <div class="loading-indicator" id="loadingIndicator">
+            <div class="loading-spinner"></div>
+            <span>批改进行中，实时更新结果...</span>
+        </div>
+        {% endif %}
+
+        <!-- 评分卡片 -->
+        <div class="score-card" id="scoreCard">
+            {% if result and result.get('评分') and result.get('评分').get('分数') %}
+                <div class="score-number">{{ result['评分']['分数'] }}</div>
+                <div class="score-label">综合评分</div>
+                {% if result['评分']['评分理由'] %}
+                <div class="score-reason">
+                    <h3><i class="fas fa-align-left"></i> 评分理由</h3>
+                    <p>{{ result['评分']['评分理由'] }}</p>
+                </div>
+                {% endif %}
+            {% else %}
+                {% if stream_mode and not is_completed %}
+                <div class="placeholder placeholder-short"></div>
+                <div class="placeholder placeholder-medium"></div>
+                <div class="placeholder placeholder-long"></div>
+                {% endif %}
+            {% endif %}
+        </div>
+
+        <!-- 原作文高亮区域 -->
+        <div class="section">
+            <h2><i class="fas fa-file-alt"></i> 原文分析</h2>
+            <div class="essay-container" id="essayContainer">
+                <div class="essay-content">{{ essay | safe }}</div>
+            </div>
+        </div>
+
+        <!-- 错误分析 -->
+        <div class="section" id="errorSection">
+            <h2><i class="fas fa-exclamation-triangle"></i> 错误分析</h2>
+            <div class="analysis-container" id="errorContainer">
+                {% if result and result.get('错误分析') %}
+                    {% for category, errors in result['错误分析'].items() %}
+                    <div class="error-category">
+                        <h3 class="error-type">{{ category }}</h3>
+                        {% for error in errors %}
+                        <div class="error-item">
+                            <div class="error-header">
+                                <span class="error-position">
+                                    <span class="error-text-label">错误文本:</span> 
+                                    <span class="error-text-content">"{{ error['错误文本'] }}"</span>
+                                    <span class="error-pos-label">位置:</span> 
+                                    <span class="error-pos-value">{{ error['错误位置'][0] }} - {{ error['错误位置'][1] }}</span>
+                                </span>
+                                <button class="toggle-detail" onclick="toggleDetail(this)">显示详情</button>
+                            </div>
+                            <div class="error-detail">
+                                <p><strong>分析:</strong> {{ error['详细分析'] }}</p>
+                                {% if error.get('语法规则') %}
+                                <p class="grammar-rule"><strong>语法规则:</strong> {{ error['语法规则'] }}</p>
+                                {% endif %}
+                                {% if error.get('正确形式') %}
+                                <p class="correct-form"><strong>正确形式:</strong> <span class="correct-text">{{ error['正确形式'] }}</span></p>
+                                {% endif %}
+                                <div class="example-box">
+                                    <div class="good-example">
+                                        <i class="fas fa-check-circle"></i>
+                                        <strong>正确示例:</strong> 
+                                        {% if error['正例'] is string %}
+                                            {{ error['正例'] }}
+                                        {% elif error['正例'] is iterable %}
+                                            <ul class="example-list">
+                                                {% for example in error['正例'] %}
+                                                    <li>{{ example }}</li>
+                                                {% endfor %}
+                                            </ul>
+                                        {% endif %}
+                                    </div>
+                                    <div class="bad-example">
+                                        <i class="fas fa-times-circle"></i>
+                                        <strong>错误示例:</strong> 
+                                        {% if error['反例'] is string %}
+                                            {{ error['反例'] }}
+                                        {% elif error['反例'] is iterable %}
+                                            <ul class="example-list">
+                                                {% for example in error['反例'] %}
+                                                    <li>{{ example }}</li>
+                                                {% endfor %}
+                                            </ul>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    {% if stream_mode and not is_completed %}
+                    <div class="placeholder placeholder-medium"></div>
+                    <div class="placeholder placeholder-long"></div>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- 亮点分析 -->
+        <div class="section highlight-section" id="highlightSection">
+            <h2><i class="fas fa-star"></i> 亮点分析</h2>
+            <div class="highlight-grid" id="highlightContainer">
+                {% if result and result.get('亮点分析') %}
+                    {% for category, highlights in result['亮点分析'].items() %}
+                    <div class="highlight-category">
+                        <h3>{{ category }}</h3>
+                        <div class="highlight-items-container">
+                            {% for highlight in highlights %}
+                            <div class="highlight-item">
+                                <div class="highlight-content">
+                                    <span class="highlight-text">{{ highlight['词汇'] or highlight['表达'] }}</span>
+                                    <p class="highlight-reason">{{ highlight['优秀之处'] }}</p>
+                                </div>
+                                {% if highlight.get('其他用法') or highlight.get('类似表达') %}
+                                <div class="highlight-examples">
+                                    {% if highlight.get('其他用法') %}
+                                    <div class="other-usages">
+                                        <h4><i class="fas fa-exchange-alt"></i> 其他用法</h4>
+                                        <ul class="usage-list">
+                                            {% for usage in highlight['其他用法'] %}
+                                                <li>{{ usage }}</li>
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+                                    {% endif %}
+                                    {% if highlight.get('类似表达') %}
+                                    <div class="similar-expressions">
+                                        <h4><i class="fas fa-clone"></i> 类似表达</h4>
+                                        <ul class="expression-list">
+                                            {% for expr in highlight['类似表达'] %}
+                                                <li>{{ expr }}</li>
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    {% if stream_mode and not is_completed %}
+                    <div class="placeholder placeholder-medium"></div>
+                    <div class="placeholder placeholder-long"></div>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- 写作建议 -->
+        <div class="section suggestion-section" id="suggestionSection">
+            <h2><i class="fas fa-lightbulb"></i> 写作建议</h2>
+            <div class="suggestion-box" id="suggestionContainer">
+                {% if result and result.get('写作建议') %}
+                    {% if result['写作建议'] is mapping %}
+                        {% if result['写作建议']['结构建议'] %}
+                            <div class="suggestion-category">
+                                <h3><i class="fas fa-sitemap"></i> 结构建议</h3>
+                                <p>{{ result['写作建议']['结构建议'] }}</p>
+                            </div>
+                        {% endif %}
+                        
+                        {% if result['写作建议']['表达建议'] %}
+                            <div class="suggestion-category">
+                                <h3><i class="fas fa-language"></i> 表达建议</h3>
+                                <p>{{ result['写作建议']['表达建议'] }}</p>
+                            </div>
+                        {% endif %}
+                        
+                        {% if result['写作建议']['内容建议'] %}
+                            <div class="suggestion-category">
+                                <h3><i class="fas fa-file-alt"></i> 内容建议</h3>
+                                <p>{{ result['写作建议']['内容建议'] }}</p>
+                            </div>
+                        {% endif %}
+                        
+                        {% if result['写作建议']['实用技巧'] %}
+                            <div class="suggestion-category">
+                                <h3><i class="fas fa-tools"></i> 实用技巧</h3>
+                                <ul class="tips-list">
+                                    {% for tip in result['写作建议']['实用技巧'] %}
+                                        <li>{{ tip }}</li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        {% endif %}
+                    {% else %}
+                        <p>{{ result['写作建议'] }}</p>
+                    {% endif %}
+                {% else %}
+                    {% if stream_mode and not is_completed %}
+                    <div class="placeholder placeholder-medium"></div>
+                    <div class="placeholder placeholder-long"></div>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {% if stream_mode and not is_completed %}
+    <script>
+        const taskId = "{{ task_id }}";
+        let checkInterval = null;
+        
+        function checkStreamStatus() {
+            fetch(`/api/stream-status/${taskId}`)
+                .then(response => response.json())
+                .then(data => {
+                    // 更新页面内容
+                    updatePageContent(data);
+                    
+                    // 如果任务完成，停止检查并刷新页面
+                    if (data.complete === true || data.status === "completed") {
+                        clearInterval(checkInterval);
+                        document.getElementById('loadingIndicator').style.display = 'none';
+                        // 给后端一点时间完成数据保存
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1000);
+                    } else if (data.status === "error") {
+                        clearInterval(checkInterval);
+                        document.getElementById('loadingIndicator').style.display = 'none';
+                        showError('批改过程出现错误，请重试');
+                    }
+                })
+                .catch(error => {
+                    console.error('检查状态时出错:', error);
+                    clearInterval(checkInterval);
+                    document.getElementById('loadingIndicator').style.display = 'none';
+                    showError('网络请求出错，请刷新页面重试');
+                });
+        }
+        
+        function updatePageContent(data) {
+            if (!data.partial_result) return;
+            
+            // 更新评分卡
+            if (data.partial_result.评分) {
+                updateScoreCard(data.partial_result.评分);
+            }
+            
+            // 更新错误分析
+            if (data.partial_result.错误分析) {
+                updateErrorAnalysis(data.partial_result.错误分析);
+            }
+            
+            // 更新亮点分析
+            if (data.partial_result.亮点分析) {
+                updateHighlights(data.partial_result.亮点分析);
+            }
+            
+            // 更新写作建议
+            if (data.partial_result.写作建议) {
+                updateSuggestions(data.partial_result.写作建议);
+            }
+            
+            // 重新初始化错误高亮
+            if (window.highlightErrors) {
+                window.highlightErrors();
+            }
+        }
+        
+        function updateScoreCard(scoreData) {
+            const scoreCard = document.getElementById('scoreCard');
+            let scoreHtml = '';
+            
+            if (scoreData.分数) {
+                scoreHtml += `<div class="score-number">${scoreData.分数}</div>`;
+                scoreHtml += `<div class="score-label">综合评分</div>`;
+            }
+            
+            if (scoreData.评分理由) {
+                scoreHtml += `<div class="score-reason">
+                    <h3><i class="fas fa-align-left"></i> 评分理由</h3>
+                    <p>${scoreData.评分理由}</p>
+                </div>`;
+            }
+            
+            scoreCard.innerHTML = scoreHtml;
+        }
+        
+        function updateErrorAnalysis(errorData) {
+            const errorContainer = document.getElementById('errorContainer');
+            let errorsHtml = '';
+            
+            for (const [category, errors] of Object.entries(errorData)) {
+                if (errors && errors.length > 0) {
+                    errorsHtml += `<div class="error-category">
+                        <h3 class="error-type">${category}</h3>`;
+                    
+                    for (const error of errors) {
+                        // 确保错误对象包含所有必要字段
+                        if (!error.错误文本 || !error.错误位置) {
+                            console.warn('错误对象缺少必要字段:', error);
+                            continue;
+                        }
+                        
+                        errorsHtml += generateErrorItemHtml(error);
+                    }
+                    
+                    errorsHtml += `</div>`;
+                }
+            }
+            
+            if (errorsHtml) {
+                errorContainer.innerHTML = errorsHtml;
+                // 初始化错误详情的折叠状态
+                const detailButtons = errorContainer.querySelectorAll('.toggle-detail');
+                detailButtons.forEach(button => {
+                    const detail = button.parentElement.nextElementSibling;
+                    detail.style.display = 'none';
+                });
+            }
+        }
+        
+        function updateHighlights(highlightData) {
+            const highlightContainer = document.getElementById('highlightContainer');
+            let highlightsHtml = '';
+            
+            for (const [category, highlights] of Object.entries(highlightData)) {
+                if (highlights && highlights.length > 0) {
+                    highlightsHtml += `<div class="highlight-category">
+                        <h3>${category}</h3>
+                        <div class="highlight-items-container">`;
+                    
+                    for (const highlight of highlights) {
+                        const text = highlight.词汇 || highlight.表达 || '';
+                        highlightsHtml += `<div class="highlight-item">
+                            <div class="highlight-content">
+                                <span class="highlight-text">${text}</span>
+                                <p class="highlight-reason">${highlight.优秀之处}</p>
+                            </div>`;
+                            
+                        // 添加其他用法和类似表达
+                        if (highlight.其他用法 || highlight.类似表达) {
+                            highlightsHtml += `<div class="highlight-examples">`;
+                            
+                            if (highlight.其他用法 && Array.isArray(highlight.其他用法)) {
+                                highlightsHtml += `
+                                    <div class="other-usages">
+                                        <h4><i class="fas fa-exchange-alt"></i> 其他用法</h4>
+                                        <ul class="usage-list">
+                                            ${highlight.其他用法.map(usage => `<li>${usage}</li>`).join('')}
+                                        </ul>
+                                    </div>`;
+                            }
+                            
+                            if (highlight.类似表达 && Array.isArray(highlight.类似表达)) {
+                                highlightsHtml += `
+                                    <div class="similar-expressions">
+                                        <h4><i class="fas fa-clone"></i> 类似表达</h4>
+                                        <ul class="expression-list">
+                                            ${highlight.类似表达.map(expr => `<li>${expr}</li>`).join('')}
+                                        </ul>
+                                    </div>`;
+                            }
+                            
+                            highlightsHtml += `</div>`;
+                        }
+                        
+                        highlightsHtml += `</div>`;
+                    }
+                    
+                    highlightsHtml += `</div></div>`;
+                }
+            }
+            
+            highlightContainer.innerHTML = highlightsHtml;
+        }
+        
+        function updateSuggestions(suggestionData) {
+            const suggestionContainer = document.getElementById('suggestionContainer');
+            let suggestionsHtml = '';
+            
+            if (typeof suggestionData === 'string') {
+                suggestionsHtml = `<p>${suggestionData}</p>`;
+            } else {
+                if (suggestionData.结构建议) {
+                    suggestionsHtml += generateSuggestionCategoryHtml('结构建议', 'sitemap', suggestionData.结构建议);
+                }
+                
+                if (suggestionData.表达建议) {
+                    suggestionsHtml += generateSuggestionCategoryHtml('表达建议', 'language', suggestionData.表达建议);
+                }
+                
+                if (suggestionData.内容建议) {
+                    suggestionsHtml += generateSuggestionCategoryHtml('内容建议', 'file-alt', suggestionData.内容建议);
+                }
+                
+                if (suggestionData.实用技巧 && Array.isArray(suggestionData.实用技巧)) {
+                    suggestionsHtml += `<div class="suggestion-category">
+                        <h3><i class="fas fa-tools"></i> 实用技巧</h3>
+                        <ul class="tips-list">
+                            ${suggestionData.实用技巧.map(tip => `<li>${tip}</li>`).join('')}
+                        </ul>
+                    </div>`;
+                }
+            }
+            
+            suggestionContainer.innerHTML = suggestionsHtml;
+        }
+        
+        function generateErrorItemHtml(error) {
+            return `<div class="error-item">
+                <div class="error-header">
+                    <span class="error-position">
+                        <span class="error-text-label">错误文本:</span> 
+                        <span class="error-text-content">"${error.错误文本}"</span>
+                        <span class="error-pos-label">位置:</span> 
+                        <span class="error-pos-value">${error.错误位置[0]} - ${error.错误位置[1]}</span>
+                    </span>
+                    <button class="toggle-detail" onclick="toggleDetail(this)">显示详情</button>
+                </div>
+                <div class="error-detail">
+                    <p><strong>分析:</strong> ${error.详细分析}</p>
+                    ${error.语法规则 ? `<p class="grammar-rule"><strong>语法规则:</strong> ${error.语法规则}</p>` : ''}
+                    ${error.正确形式 ? `<p class="correct-form"><strong>正确形式:</strong> <span class="correct-text">${error.正确形式}</span></p>` : ''}
+                    <div class="example-box">
+                        <div class="good-example">
+                            <i class="fas fa-check-circle"></i>
+                            <strong>正确示例:</strong> 
+                            ${Array.isArray(error.正例) ? 
+                                `<ul class="example-list">${error.正例.map(ex => `<li>${ex}</li>`).join('')}</ul>` : 
+                                error.正例}
+                        </div>
+                        <div class="bad-example">
+                            <i class="fas fa-times-circle"></i>
+                            <strong>错误示例:</strong> 
+                            ${Array.isArray(error.反例) ? 
+                                `<ul class="example-list">${error.反例.map(ex => `<li>${ex}</li>`).join('')}</ul>` : 
+                                error.反例}
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+        
+        function generateSuggestionCategoryHtml(title, icon, content) {
+            return `<div class="suggestion-category">
+                <h3><i class="fas fa-${icon}"></i> ${title}</h3>
+                <p>${content}</p>
+            </div>`;
+        }
+        
+        // 页面加载后开始检查
+        document.addEventListener('DOMContentLoaded', function() {
+            // 每2秒检查一次状态
+            checkStreamStatus(); // 立即检查一次
+            checkInterval = setInterval(checkStreamStatus, 2000);
+        });
+        
+        // 添加toggleDetail函数（如果原来没有）
+        function toggleDetail(button) {
+            const detail = button.parentElement.nextElementSibling;
+            if (detail.style.display === 'block') {
+                detail.style.display = 'none';
+                button.textContent = '显示详情';
+            } else {
+                detail.style.display = 'block';
+                button.textContent = '隐藏详情';
+            }
+        }
+    </script>
+    {% else %}
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script>
+        // 初始化错误详情的折叠状态
+        document.addEventListener('DOMContentLoaded', function() {
+            const detailButtons = document.querySelectorAll('.toggle-detail');
+            detailButtons.forEach(button => {
+                const detail = button.parentElement.nextElementSibling;
+                detail.style.display = 'none';
+            });
+        });
+    </script>
+    {% endif %}
+</body>
+</html>

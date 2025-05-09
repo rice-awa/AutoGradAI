@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>批改处理中</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <style>
+        .waiting-container {
+            text-align: center;
+            margin: 80px auto;
+            max-width: 600px;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            background-color: white;
+        }
+        
+        .loading-spinner {
+            display: inline-block;
+            position: relative;
+            width: 80px;
+            height: 80px;
+            margin: 30px auto;
+        }
+        
+        .loading-spinner div {
+            animation: loading-spinner 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+            transform-origin: 40px 40px;
+        }
+        
+        .loading-spinner div:after {
+            content: " ";
+            display: block;
+            position: absolute;
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #007bff;
+            margin: -4px 0 0 -4px;
+        }
+        
+        .loading-spinner div:nth-child(1) {
+            animation-delay: -0.036s;
+        }
+        
+        .loading-spinner div:nth-child(1):after {
+            top: 63px;
+            left: 63px;
+        }
+        
+        .loading-spinner div:nth-child(2) {
+            animation-delay: -0.072s;
+        }
+        
+        .loading-spinner div:nth-child(2):after {
+            top: 68px;
+            left: 56px;
+        }
+        
+        .loading-spinner div:nth-child(3) {
+            animation-delay: -0.108s;
+        }
+        
+        .loading-spinner div:nth-child(3):after {
+            top: 71px;
+            left: 48px;
+        }
+        
+        .loading-spinner div:nth-child(4) {
+            animation-delay: -0.144s;
+        }
+        
+        .loading-spinner div:nth-child(4):after {
+            top: 72px;
+            left: 40px;
+        }
+        
+        .loading-spinner div:nth-child(5) {
+            animation-delay: -0.18s;
+        }
+        
+        .loading-spinner div:nth-child(5):after {
+            top: 71px;
+            left: 32px;
+        }
+        
+        .loading-spinner div:nth-child(6) {
+            animation-delay: -0.216s;
+        }
+        
+        .loading-spinner div:nth-child(6):after {
+            top: 68px;
+            left: 24px;
+        }
+        
+        .loading-spinner div:nth-child(7) {
+            animation-delay: -0.252s;
+        }
+        
+        .loading-spinner div:nth-child(7):after {
+            top: 63px;
+            left: 17px;
+        }
+        
+        .loading-spinner div:nth-child(8) {
+            animation-delay: -0.288s;
+        }
+        
+        .loading-spinner div:nth-child(8):after {
+            top: 56px;
+            left: 12px;
+        }
+        
+        @keyframes loading-spinner {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+        
+        .status-message {
+            margin: 20px 0;
+            font-size: 16px;
+            color: #666;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background-color: #eee;
+            border-radius: 3px;
+            margin: 20px 0;
+            overflow: hidden;
+        }
+        
+        .progress-bar-fill {
+            height: 100%;
+            background-color: #4CAF50;
+            width: 0%;
+            animation: progress-animation 2s infinite ease-in-out;
+        }
+        
+        @keyframes progress-animation {
+            0% {
+                width: 0%;
+            }
+            50% {
+                width: 70%;
+            }
+            100% {
+                width: 100%;
+            }
+        }
+        
+        /* 流式结果预览样式 */
+        .stream-preview {
+            display: none;
+            margin-top: 30px;
+            text-align: left;
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            padding: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            transition: all 0.3s ease;
+        }
+        
+        .stream-preview.active {
+            display: block;
+        }
+        
+        .stream-section {
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px dashed #ddd;
+        }
+        
+        .stream-section h3 {
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 16px;
+        }
+        
+        .stream-section p {
+            margin: 5px 0;
+            color: #666;
+        }
+        
+        .stream-category {
+            display: inline-block;
+            margin-right: 10px;
+            margin-bottom: 5px;
+            padding: 3px 8px;
+            background-color: #007bff;
+            color: white;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+        
+        .stream-error {
+            color: #d9534f;
+        }
+        
+        .stream-highlight {
+            color: #5cb85c;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="title">作文批改中</h1>
+        <a href="/" class="back-btn"><i class="fas fa-arrow-left"></i> 返回首页</a>
+        
+        <div class="waiting-container">
+            <h2>您的作文正在批改中...</h2>
+            
+            <div class="loading-spinner">
+                <div></div>
+                <div></div>
+                <div></div>
+                <div></div>
+                <div></div>
+                <div></div>
+                <div></div>
+                <div></div>
+            </div>
+            
+            <div class="progress-bar">
+                <div class="progress-bar-fill"></div>
+            </div>
+            
+            <p class="status-message" id="statusMessage">正在处理您的作文，请稍候...</p>
+            
+            <p id="autoRefreshMessage">页面将自动刷新，显示结果</p>
+            
+            <!-- 流式结果预览区域 -->
+            <div class="stream-preview" id="streamPreview">
+                <h3>实时批改结果预览</h3>
+                <div id="streamScore" class="stream-section">
+                    <h3>评分</h3>
+                    <p>批改中...</p>
+                </div>
+                <div id="streamErrors" class="stream-section">
+                    <h3>错误分析</h3>
+                    <p>批改中...</p>
+                </div>
+                <div id="streamHighlights" class="stream-section">
+                    <h3>亮点分析</h3>
+                    <p>批改中...</p>
+                </div>
+                <div id="streamSuggestions" class="stream-section">
+                    <h3>写作建议</h3>
+                    <p>批改中...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const taskId = "{{ task_id }}";
+        let checkCount = 0;
+        const isStreamMode = {{ 'true' if stream_mode else 'false' }};
+        
+        // 定时检查任务状态
+        function checkTaskStatus() {
+            const endpoint = isStreamMode ? `/api/stream-status/${taskId}` : `/api/status/${taskId}`;
+            
+            fetch(endpoint)
+                .then(response => response.json())
+                .then(data => {
+                    // 更新状态消息
+                    const statusMessage = document.getElementById('statusMessage');
+                    
+                    if (data.status === 'completed' || data.complete === true) {
+                        statusMessage.textContent = '批改完成！正在跳转到结果页面...';
+                        // 跳转到结果页面
+                        window.location.href = isStreamMode ? `/stream-result/${taskId}` : `/async-result/${taskId}`;
+                    } else if (data.status === 'error') {
+                        statusMessage.textContent = `批改出错: ${data.error}`;
+                        statusMessage.style.color = 'red';
+                    } else {
+                        checkCount++;
+                        if (data.status === 'processing') {
+                            statusMessage.textContent = `正在批改作文...（第${checkCount}次检查）`;
+                            
+                            // 流式模式下更新预览
+                            if (isStreamMode && data.partial_result) {
+                                updateStreamPreview(data.partial_result);
+                            }
+                            
+                        } else {
+                            statusMessage.textContent = `排队等待中...（第${checkCount}次检查）`;
+                        }
+                        // 继续检查
+                        setTimeout(checkTaskStatus, isStreamMode ? 1000 : 2000);
+                    }
+                })
+                .catch(error => {
+                    console.error('检查状态时出错:', error);
+                    const statusMessage = document.getElementById('statusMessage');
+                    statusMessage.textContent = '检查状态时出错，将在2秒后重试...';
+                    statusMessage.style.color = 'orange';
+                    setTimeout(checkTaskStatus, 2000);
+                });
+        }
+        
+        // 更新流式预览
+        function updateStreamPreview(partialResult) {
+            // 显示预览区域
+            const previewElement = document.getElementById('streamPreview');
+            previewElement.classList.add('active');
+            
+            // 更新评分
+            if (partialResult.评分) {
+                const scoreElement = document.getElementById('streamScore');
+                let scoreHtml = `<h3>评分</h3>`;
+                
+                if (partialResult.评分.分数) {
+                    scoreHtml += `<p><strong>分数: </strong>${partialResult.评分.分数}</p>`;
+                }
+                
+                if (partialResult.评分.评分理由) {
+                    scoreHtml += `<p><strong>理由: </strong>${partialResult.评分.评分理由}</p>`;
+                }
+                
+                scoreElement.innerHTML = scoreHtml;
+            }
+            
+            // 更新错误分析
+            if (partialResult.错误分析) {
+                const errorsElement = document.getElementById('streamErrors');
+                let errorsHtml = `<h3>错误分析</h3>`;
+                
+                for (const [category, errors] of Object.entries(partialResult.错误分析)) {
+                    if (errors && errors.length > 0) {
+                        errorsHtml += `<div class="stream-category">${category}</div>`;
+                        errorsHtml += `<ul>`;
+                        for (const error of errors.slice(0, 3)) { // 限制显示前三个错误
+                            if (error.错误文本) {
+                                errorsHtml += `<li class="stream-error">
+                                    <strong>"${error.错误文本}"</strong>
+                                    ${error.详细分析 ? ` - ${error.详细分析}` : ''}
+                                </li>`;
+                            }
+                        }
+                        if (errors.length > 3) {
+                            errorsHtml += `<li>...还有 ${errors.length - 3} 个错误</li>`;
+                        }
+                        errorsHtml += `</ul>`;
+                    }
+                }
+                
+                errorsElement.innerHTML = errorsHtml;
+            }
+            
+            // 更新亮点分析
+            if (partialResult.亮点分析) {
+                const highlightsElement = document.getElementById('streamHighlights');
+                let highlightsHtml = `<h3>亮点分析</h3>`;
+                
+                for (const [category, highlights] of Object.entries(partialResult.亮点分析)) {
+                    if (highlights && highlights.length > 0) {
+                        highlightsHtml += `<div class="stream-category">${category}</div>`;
+                        highlightsHtml += `<ul>`;
+                        for (const highlight of highlights.slice(0, 3)) { // 限制显示前三个亮点
+                            const text = highlight.词汇 || highlight.表达 || '';
+                            highlightsHtml += `<li class="stream-highlight">
+                                <strong>"${text}"</strong>
+                                ${highlight.优秀之处 ? ` - ${highlight.优秀之处}` : ''}
+                            </li>`;
+                        }
+                        if (highlights.length > 3) {
+                            highlightsHtml += `<li>...还有 ${highlights.length - 3} 个亮点</li>`;
+                        }
+                        highlightsHtml += `</ul>`;
+                    }
+                }
+                
+                highlightsElement.innerHTML = highlightsHtml;
+            }
+            
+            // 更新写作建议
+            if (partialResult.写作建议) {
+                const suggestionsElement = document.getElementById('streamSuggestions');
+                let suggestionsHtml = `<h3>写作建议</h3>`;
+                
+                if (typeof partialResult.写作建议 === 'string') {
+                    suggestionsHtml += `<p>${partialResult.写作建议}</p>`;
+                } else if (typeof partialResult.写作建议 === 'object') {
+                    for (const [key, value] of Object.entries(partialResult.写作建议)) {
+                        if (value) {
+                            suggestionsHtml += `<p><strong>${key}：</strong> ${value}</p>`;
+                        }
+                    }
+                }
+                
+                suggestionsElement.innerHTML = suggestionsHtml;
+            }
+        }
+        
+        // 页面加载后开始检查
+        document.addEventListener('DOMContentLoaded', function() {
+            // 流式模式下更新界面提示
+            if (isStreamMode) {
+                document.getElementById('autoRefreshMessage').textContent = '您可以在下方查看实时批改进度...';
+                setTimeout(checkTaskStatus, 1000);
+            } else {
+                setTimeout(checkTaskStatus, 1000);
+            }
+        });
+    </script>
+</body>
+</html> 

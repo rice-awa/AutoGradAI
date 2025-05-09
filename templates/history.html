@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>批改历史记录</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <style>
+        .history-container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        
+        .history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .history-title {
+            font-size: 28px;
+            color: #333;
+            margin: 0;
+        }
+        
+        .history-stats {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+        
+        .stat-item {
+            text-align: center;
+            padding: 10px;
+            min-width: 120px;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .history-list {
+            margin-top: 20px;
+        }
+        
+        .history-card {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 15px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            overflow: hidden;
+        }
+        
+        .history-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        .history-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .history-date {
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .history-mode {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-weight: 500;
+        }
+        
+        .mode-sync {
+            background-color: #e3f2fd;
+            color: #0d47a1;
+        }
+        
+        .mode-async {
+            background-color: #e8f5e9;
+            color: #1b5e20;
+        }
+        
+        .mode-stream {
+            background-color: #fff8e1;
+            color: #ff8f00;
+        }
+        
+        .history-card-body {
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .history-essay {
+            flex: 1;
+            margin-right: 20px;
+        }
+        
+        .history-essay-preview {
+            font-size: 14px;
+            color: #555;
+            margin: 0;
+            line-height: 1.5;
+            max-height: 80px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+        }
+        
+        .history-meta {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            min-width: 120px;
+        }
+        
+        .history-score {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+            margin-bottom: 10px;
+        }
+        
+        .history-errors {
+            font-size: 14px;
+            color: #dc3545;
+            margin-bottom: 15px;
+        }
+        
+        .history-length {
+            font-size: 13px;
+            color: #666;
+        }
+        
+        .history-card-footer {
+            padding: 10px 20px;
+            text-align: right;
+            border-top: 1px solid #eee;
+        }
+        
+        .btn-view {
+            display: inline-block;
+            padding: 8px 16px;
+            background-color: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        
+        .btn-view:hover {
+            background-color: #0056b3;
+        }
+        
+        .empty-history {
+            text-align: center;
+            padding: 40px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            color: #666;
+        }
+        
+        .empty-icon {
+            font-size: 48px;
+            color: #adb5bd;
+            margin-bottom: 15px;
+        }
+        
+        @media (max-width: 768px) {
+            .history-card-body {
+                flex-direction: column;
+            }
+            
+            .history-essay {
+                margin-right: 0;
+                margin-bottom: 15px;
+            }
+            
+            .history-meta {
+                flex-direction: row;
+                justify-content: space-between;
+                align-items: center;
+                width: 100%;
+            }
+            
+            .history-score {
+                margin-bottom: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container history-container">
+        <div class="history-header">
+            <h1 class="history-title">批改历史记录</h1>
+            <a href="/" class="back-btn"><i class="fas fa-arrow-left"></i> 返回首页</a>
+        </div>
+        
+        {% if history_records %}
+            <div class="history-stats">
+                <div class="stat-item">
+                    <div class="stat-value">{{ history_records|length }}</div>
+                    <div class="stat-label">总批改次数</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">
+                        {% set total_score = 0 %}
+                        {% for record in history_records %}
+                            {% if record.score != "未评分" %}
+                                {% set score_value = record.score.split('/')[0]|int %}
+                                {% set total_score = total_score + score_value %}
+                            {% endif %}
+                        {% endfor %}
+                        {% if history_records|length > 0 %}
+                            {{ (total_score / history_records|length)|round(1) }}
+                        {% else %}
+                            0
+                        {% endif %}
+                    </div>
+                    <div class="stat-label">平均分数</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">
+                        {% set total_errors = 0 %}
+                        {% for record in history_records %}
+                            {% set total_errors = total_errors + record.error_count %}
+                        {% endfor %}
+                        {{ total_errors }}
+                    </div>
+                    <div class="stat-label">总错误数</div>
+                </div>
+            </div>
+            
+            <div class="history-list">
+                {% for record in history_records %}
+                    <div class="history-card">
+                        <div class="history-card-header">
+                            <div class="history-date">
+                                <i class="far fa-calendar-alt"></i> {{ record.formatted_time }}
+                            </div>
+                            <div class="history-mode 
+                                {% if record.mode == 'sync' %}mode-sync
+                                {% elif record.mode == 'async' %}mode-async
+                                {% else %}mode-stream{% endif %}">
+                                {% if record.mode == 'sync' %}同步批改
+                                {% elif record.mode == 'async' %}异步批改
+                                {% else %}流式批改{% endif %}
+                            </div>
+                        </div>
+                        <div class="history-card-body">
+                            <div class="history-essay">
+                                <p class="history-essay-preview">{{ record.essay }}</p>
+                            </div>
+                            <div class="history-meta">
+                                <div class="history-score">{{ record.score }}</div>
+                                <div class="history-errors">
+                                    <i class="fas fa-exclamation-triangle"></i> {{ record.error_count }} 个错误
+                                </div>
+                                <div class="history-length">
+                                    <i class="fas fa-text-width"></i> {{ record.essay_length }} 字符
+                                </div>
+                            </div>
+                        </div>
+                        <div class="history-card-footer">
+                            <a href="{{ url_for('view_history_detail', history_id=record.id) }}" class="btn-view">
+                                <i class="fas fa-eye"></i> 查看详情
+                            </a>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-history">
+                <div class="empty-icon">
+                    <i class="far fa-folder-open"></i>
+                </div>
+                <h3>暂无批改历史记录</h3>
+                <p>提交作文进行批改后，历史记录将显示在这里</p>
+                <a href="/" class="btn-primary" style="margin-top: 20px;">
+                    <i class="fas fa-pen"></i> 开始批改
+                </a>
+            </div>
+        {% endif %}
+    </div>
+</body>
+</html> 
