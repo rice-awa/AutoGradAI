@@ -13,6 +13,7 @@
 - **亮点分析**：识别作文中使用的高级词汇和优秀表达
 - **写作建议**：提供针对性的结构、表达和内容改进建议
 - **同步/异步处理**：支持同步和异步批改模式，适应不同使用场景
+- **多模型支持**：灵活支持DeepSeek和OpenAI等多种大语言模型
 
 ## 技术架构
 
@@ -21,6 +22,7 @@
 - **语言模型**：支持DeepSeek和OpenAI API
 - **错误检测**：基于高级正则表达式和语义分析的错误检测系统
 - **错误位置验证**：智能索引匹配系统，确保精确定位错误位置
+- **类型提示**：使用Python类型注解提高代码可读性和可维护性
 
 ## 安装与使用
 
@@ -45,12 +47,38 @@
 
 3. 配置环境变量
    ```bash
+   # DeepSeek模型配置 (默认)
    # Linux/MacOS
-   export DEEPSEEK_API_KEY=your_api_key_here
+   export DEEPSEEK_API_KEY=your_deepseek_api_key_here
    
    # Windows PowerShell
-   $env:DEEPSEEK_API_KEY="your_api_key_here"
+   $env:DEEPSEEK_API_KEY="your_deepseek_api_key_here"
+   
+   # Windows CMD
+   set DEEPSEEK_API_KEY=your_deepseek_api_key_here
+   
+   # OpenAI模型配置 (可选)
+   # Linux/MacOS
+   export OPENAI_API_KEY=your_openai_api_key_here
+   
+   # Windows PowerShell
+   $env:OPENAI_API_KEY="your_openai_api_key_here"
+   
+   # Windows CMD
+   set OPENAI_API_KEY=your_openai_api_key_here
    ```
+
+### 切换使用的模型
+
+要切换使用的语言模型，需修改main.py中的模型初始化部分：
+
+```python
+# 使用DeepSeek模型 (默认)
+model_config = ModelConfig.from_env("deepseek")
+
+# 或使用OpenAI模型
+# model_config = ModelConfig.from_env("openai")
+```
 
 ### 启动应用
 
@@ -106,23 +134,51 @@ curl http://localhost:5000/api/status/<task_id>
 }
 ```
 
-## 系统架构
+## 项目结构
 
-### 核心模块
+```
+AutoGradAI/
+├── app.py                 # Flask Web应用和API接口
+├── main.py                # 核心批改逻辑和LLM调用
+├── prompts.py             # LLM提示词和批改指令模板
+├── logger.py              # 日志配置和管理系统
+├── run.py                 # 应用启动脚本
+├── requirements.txt       # 项目依赖
+├── static/                # 静态资源文件
+│   ├── css/               # 样式表
+│   ├── js/                # JavaScript脚本
+│   └── img/               # 图片资源
+├── templates/             # HTML模板
+│   ├── index.html         # 主页面模板
+│   ├── result.html        # 结果页面模板
+│   └── layout.html        # 布局模板
+├── logs/                  # 日志目录
+└── tests/                 # 测试代码目录
+```
 
-- **main.py**：核心批改逻辑和LLM调用
-- **app.py**：Web应用和API接口
-- **prompts.py**：LLM提示词和批改指令模板
-- **logger.py**：日志记录系统
+### 核心模块详解
 
-### 工作流程
+- **main.py**：
+  - 定义数据结构和类型（ErrorItem, TaskStatus等）
+  - 实现ModelConfig类，支持多模型配置
+  - 提供错误分析验证 (ErrorAnalysisValidator)
+  - 实现任务处理逻辑 (TaskHandler)
+  - 提供同步、异步、流式处理API
 
-1. 用户提交英语作文
-2. 系统预处理作文文本
-3. 调用LLM API进行深度分析
-4. 验证错误位置索引
-5. 返回结构化批改结果
-6. 呈现用户友好的批改界面
+- **prompts.py**：
+  - 定义作文批改提示词模板
+  - 配置错误模式和规则
+  - 管理输出格式指导
+
+- **logger.py**：
+  - 配置日志记录系统
+  - 实现日志过滤和格式化
+  - 支持文件和控制台输出
+
+- **app.py**：
+  - 实现Flask Web界面
+  - 定义RESTful API接口
+  - 管理任务队列和状态跟踪
 
 ## 高级功能
 
@@ -145,14 +201,40 @@ curl http://localhost:5000/api/status/<task_id>
 - 自动检查机制
 - 流式响应管理
 
+### 多模型灵活切换
+系统支持在不同LLM之间灵活切换：
+- 模块化模型配置
+- 统一的模型接口
+- 环境变量驱动的配置管理
+
+## 数据类型设计
+
+系统采用TypedDict和类型注解，实现强类型的数据结构：
+
+```python
+class EssayFeedback(TypedDict):
+    """作文反馈完整数据结构"""
+    评分: EvaluationScore
+    错误分析: ErrorAnalysis
+    亮点分析: HighlightAnalysis
+    写作建议: WritingSuggestion
+```
 
 ## 未来计划
 
-- 支持多语言模型切换
+- 支持更多语言模型集成（如Claude、Gemini等）
 - 添加批量处理功能
 - 实现用户历史记录和进度跟踪
 - 开发更精细的评分标准和错误分类
 - 增加自定义提示词和评分标准
+- 添加单元测试和集成测试
+
+## 性能优化建议
+
+- 使用异步API处理长文本
+- 对于较短文本，使用同步API减少延迟
+- 在高负载情况下配置队列系统
+- 定期清理日志文件
 
 ## 许可证
 
