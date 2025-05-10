@@ -426,10 +426,14 @@ class TaskHandler:
         
         collected_content = ""
         result_dict: Dict[str, Any] = {}
+        last_yield_time = 0  # 记录上次发送的时间
+        token_buffer = []  # 用于累积token
         
-        # 正则表达式匹配键值对
-        key_pattern = r'"([^"]+)"\s*:'
-        section_pattern = r'"([^"]+)"\s*:\s*(\{[^{}]*\}|\[[^\[\]]*\]|"[^"]*")'
+        # 定义要监控的关键部分
+        key_sections = ["评分", "错误分析", "亮点分析", "写作建议"]
+        section_progress: Dict[str, Dict[str, Any]] = {
+            section: {"complete": False, "content": {}, "partial_content": {}} for section in key_sections
+        }
         
         try:
             # 流式处理LLM调用
@@ -438,8 +442,19 @@ class TaskHandler:
                     content = chunk.content
                 else:
                     content = str(chunk)
-                    
+                
+                # 累积内容
                 collected_content += content
+                token_buffer.append(content)
+                
+                # 控制发送频率，避免过于频繁的更新
+                current_time = asyncio.get_event_loop().time()
+                if current_time - last_yield_time < 0.3 and len(token_buffer) < 10:  # 至少间隔0.3秒或累积10个token
+                    continue
+                
+                # 重置buffer和时间
+                token_buffer = []
+                last_yield_time = current_time
                 
                 # 尝试解析已经收集到的内容
                 try:
@@ -459,28 +474,163 @@ class TaskHandler:
                             except json.JSONDecodeError:
                                 pass  # 继续尝试部分解析
                     
-                    # 如果完整解析失败，尝试提取部分键值对
-                    # 查找已完成的部分（评分、错误分析、亮点分析、写作建议）
-                    for section in ["评分", "错误分析", "亮点分析", "写作建议"]:
-                        section_match = re.search(f'"{section}"\\s*:\\s*(\\{{[^{{}}]*\\}}|\\[[^\\[\\]]*\\]|"[^"]*")', collected_content)
+                    # 更细粒度地解析和返回部分内容
+                    should_yield = False
+                    
+                    # 1. 尝试提取各个主要部分
+                    for section in key_sections:
+                        # 检查是否已经完成该部分的解析
+                        if section_progress[section]["complete"]:
+                            continue
+                        
+                        # 尝试匹配整个部分及其内容
+                        # 例如: "评分": {"分数": "14/15", "评分理由": "这篇作文..."}
+                        section_pattern = f'"{section}"\\s*:\\s*(\\{{[^{{}}]*(?:\\{{[^{{}}]*\\}}[^{{}}]*)*\\}}|\\[[^\\[\\]]*(?:\\[[^\\[\\]]*\\][^\\[\\]]*)*\\]|"[^"]*")'
+                        section_match = re.search(section_pattern, collected_content, re.DOTALL)
+                        
                         if section_match:
                             try:
                                 section_content = section_match.group(1)
-                                # 确保它是有效的JSON
-                                if section_content.startswith('{') and section_content.endswith('}'):
-                                    section_json = json.loads(section_content)
-                                    result_dict[section] = section_json
-                                elif section_content.startswith('[') and section_content.endswith(']'):
-                                    section_json = json.loads(section_content)
-                                    result_dict[section] = section_json
-                                elif section_content.startswith('"') and section_content.endswith('"'):
-                                    # 处理字符串值（如"写作建议"）
-                                    result_dict[section] = section_content.strip('"')
-                            except json.JSONDecodeError:
-                                pass  # 忽略无法解析的部分
+                                
+                                # 确保获取到完整的JSON对象或数组
+                                if self._is_balanced_json(section_content):
+                                    # 确保它是有效的JSON
+                                    if section_content.startswith('{') and section_content.endswith('}'):
+                                        section_json = json.loads(section_content)
+                                        result_dict[section] = section_json
+                                        section_progress[section]["complete"] = True
+                                        section_progress[section]["content"] = section_json
+                                        should_yield = True
+                                        logger.info(f"完整解析 {section}: {json.dumps(section_json, ensure_ascii=False)[:100]}...")
+                                    elif section_content.startswith('[') and section_content.endswith(']'):
+                                        section_json = json.loads(section_content)
+                                        result_dict[section] = section_json
+                                        section_progress[section]["complete"] = True
+                                        section_progress[section]["content"] = section_json
+                                        should_yield = True
+                                        logger.info(f"完整解析 {section}: {json.dumps(section_json, ensure_ascii=False)[:100]}...")
+                                    elif section_content.startswith('"') and section_content.endswith('"'):
+                                        # 处理字符串值（如"写作建议"）
+                                        string_value = section_content.strip('"')
+                                        result_dict[section] = string_value
+                                        section_progress[section]["complete"] = True
+                                        section_progress[section]["content"] = string_value
+                                        should_yield = True
+                                        logger.info(f"完整解析 {section}: {string_value[:100]}...")
+                                else:
+                                    # 如果JSON不完整，尝试提取部分内容
+                                    self._extract_partial_content(section, section_content, result_dict, section_progress)
+                                    should_yield = True
+                            except json.JSONDecodeError as e:
+                                logger.debug(f"解析 {section} 时出错: {str(e)}, 尝试提取部分内容")
+                                # 尝试提取部分内容
+                                self._extract_partial_content(section, section_match.group(1), result_dict, section_progress)
+                                should_yield = True
+                        else:
+                            # 2. 尝试提取部分内容
+                            if section == "评分":
+                                # 尝试提取评分中的分数
+                                score_match = re.search(r'"分数"\s*:\s*"([^"]+)"', collected_content)
+                                if score_match:
+                                    if section not in result_dict:
+                                        result_dict[section] = {}
+                                    result_dict[section]["分数"] = score_match.group(1)
+                                    section_progress[section]["partial_content"]["分数"] = score_match.group(1)
+                                    logger.info(f"提取部分内容-{section}-分数: {score_match.group(1)}")
+                                
+                                # 尝试提取评分理由
+                                reason_match = re.search(r'"评分理由"\s*:\s*"([^"]+)"', collected_content)
+                                if reason_match:
+                                    if section not in result_dict:
+                                        result_dict[section] = {}
+                                    result_dict[section]["评分理由"] = reason_match.group(1)
+                                    section_progress[section]["partial_content"]["评分理由"] = reason_match.group(1)
+                                    logger.info(f"提取部分内容-{section}-评分理由: {reason_match.group(1)[:50]}...")
+                            
+                            elif section == "错误分析":
+                                # 尝试提取各种错误类型
+                                error_types = ["语法错误", "拼写错误", "标点错误", "用词错误", "用词不当", "其他错误"]
+                                for error_type in error_types:
+                                    # 使用更宽松的模式匹配错误数组
+                                    error_pattern = f'"{error_type}"\\s*:\\s*(\\[[^\\[\\]]*(?:\\{{[^{{}}]*\\}}[^\\[\\]]*)*\\])'
+                                    error_match = re.search(error_pattern, collected_content, re.DOTALL)
+                                    if error_match:
+                                        try:
+                                            error_content = error_match.group(1)
+                                            # 检查是否是完整的JSON数组
+                                            if self._is_balanced_json(error_content):
+                                                error_json = json.loads(error_content)
+                                                
+                                                # 初始化错误分析结构
+                                                if "错误分析" not in result_dict:
+                                                    result_dict["错误分析"] = {}
+                                                
+                                                result_dict["错误分析"][error_type] = error_json
+                                                section_progress[section]["partial_content"][error_type] = error_json
+                                                should_yield = True
+                                                logger.info(f"部分解析错误分析-{error_type}: {json.dumps(error_json, ensure_ascii=False)[:100]}...")
+                                        except json.JSONDecodeError:
+                                            pass
+                            
+                            elif section == "亮点分析":
+                                # 尝试提取亮点分析的各个部分
+                                highlight_types = ["高级词汇", "亮点表达"]
+                                for highlight_type in highlight_types:
+                                    highlight_pattern = f'"{highlight_type}"\\s*:\\s*(\\[[^\\[\\]]*(?:\\{{[^{{}}]*\\}}[^\\[\\]]*)*\\])'
+                                    highlight_match = re.search(highlight_pattern, collected_content, re.DOTALL)
+                                    if highlight_match:
+                                        try:
+                                            highlight_content = highlight_match.group(1)
+                                            # 检查是否是完整的JSON数组
+                                            if self._is_balanced_json(highlight_content):
+                                                highlight_json = json.loads(highlight_content)
+                                                
+                                                # 初始化亮点分析结构
+                                                if "亮点分析" not in result_dict:
+                                                    result_dict["亮点分析"] = {}
+                                                
+                                                result_dict["亮点分析"][highlight_type] = highlight_json
+                                                section_progress[section]["partial_content"][highlight_type] = highlight_json
+                                                should_yield = True
+                                                logger.info(f"部分解析亮点分析-{highlight_type}: {json.dumps(highlight_json, ensure_ascii=False)[:100]}...")
+                                        except json.JSONDecodeError:
+                                            pass
+                            
+                            elif section == "写作建议":
+                                # 尝试提取写作建议的各个部分
+                                suggestion_types = ["结构建议", "表达建议", "内容建议", "实用技巧"]
+                                for suggestion_type in suggestion_types:
+                                    # 字符串类型的建议
+                                    string_pattern = f'"{suggestion_type}"\\s*:\\s*"([^"]*)"'
+                                    string_match = re.search(string_pattern, collected_content)
+                                    if string_match:
+                                        if section not in result_dict:
+                                            result_dict[section] = {}
+                                        result_dict[section][suggestion_type] = string_match.group(1)
+                                        section_progress[section]["partial_content"][suggestion_type] = string_match.group(1)
+                                        should_yield = True
+                                        logger.info(f"部分解析写作建议-{suggestion_type}: {string_match.group(1)[:50]}...")
+                                        continue
+                                    
+                                    # 数组类型的建议
+                                    array_pattern = f'"{suggestion_type}"\\s*:\\s*(\\[[^\\[\\]]*(?:"[^"]*"[^\\[\\]]*)*\\])'
+                                    array_match = re.search(array_pattern, collected_content, re.DOTALL)
+                                    if array_match:
+                                        try:
+                                            array_content = array_match.group(1)
+                                            if self._is_balanced_json(array_content):
+                                                array_json = json.loads(array_content)
+                                                if "写作建议" not in result_dict:
+                                                    result_dict["写作建议"] = {}
+                                                result_dict["写作建议"][suggestion_type] = array_json
+                                                section_progress[section]["partial_content"][suggestion_type] = array_json
+                                                should_yield = True
+                                                logger.info(f"部分解析写作建议-{suggestion_type}: {json.dumps(array_json, ensure_ascii=False)[:100]}...")
+                                        except json.JSONDecodeError:
+                                            pass
                     
                     # 如果有解析结果，返回部分结果
-                    if result_dict:
+                    if should_yield and result_dict:
                         yield {"status": "processing", "partial_result": result_dict, "result": None, "error": None}
                     
                 except Exception as e:
@@ -507,6 +657,131 @@ class TaskHandler:
         except Exception as e:
             logger.error(f"流式任务处理失败: {str(e)}")
             yield {"status": "error", "partial_result": None, "result": None, "error": str(e)}
+    
+    def _is_balanced_json(self, text: str) -> bool:
+        """
+        检查JSON文本是否平衡（括号、引号等匹配）
+        
+        Args:
+            text: 要检查的JSON文本
+            
+        Returns:
+            bool: 如果JSON文本平衡则返回True，否则返回False
+        """
+        # 检查括号是否平衡
+        stack = []
+        in_string = False
+        escape_next = False
+        
+        for char in text:
+            if escape_next:
+                escape_next = False
+                continue
+                
+            if char == '\\':
+                escape_next = True
+                continue
+                
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+                
+            if not in_string:
+                if char in '{[(':
+                    stack.append(char)
+                elif char in '}])':
+                    if not stack:
+                        return False
+                    
+                    top = stack.pop()
+                    if (char == '}' and top != '{') or (char == ']' and top != '[') or (char == ')' and top != '('):
+                        return False
+        
+        # 如果栈为空且不在字符串中，则JSON平衡
+        return len(stack) == 0 and not in_string
+    
+    def _extract_partial_content(self, section: str, content: str, result_dict: Dict[str, Any], 
+                               section_progress: Dict[str, Dict[str, Any]]) -> None:
+        """
+        从部分内容中提取有用信息
+        
+        Args:
+            section: 部分名称
+            content: 部分内容
+            result_dict: 结果字典
+            section_progress: 部分进度跟踪
+        """
+        # 根据不同部分类型进行特殊处理
+        if section == "评分":
+            # 尝试提取分数
+            score_match = re.search(r'"分数"\s*:\s*"([^"]+)"', content)
+            if score_match:
+                if section not in result_dict:
+                    result_dict[section] = {}
+                result_dict[section]["分数"] = score_match.group(1)
+                section_progress[section]["partial_content"]["分数"] = score_match.group(1)
+                logger.info(f"提取部分内容-{section}-分数: {score_match.group(1)}")
+            
+            # 尝试提取评分理由
+            reason_match = re.search(r'"评分理由"\s*:\s*"([^"]*)"', content)
+            if reason_match:
+                if section not in result_dict:
+                    result_dict[section] = {}
+                result_dict[section]["评分理由"] = reason_match.group(1)
+                section_progress[section]["partial_content"]["评分理由"] = reason_match.group(1)
+                logger.info(f"提取部分内容-{section}-评分理由: {reason_match.group(1)[:50]}...")
+        
+        elif section == "错误分析":
+            # 尝试提取各种错误类型
+            error_types = ["语法错误", "拼写错误", "标点错误", "用词错误", "用词不当", "其他错误"]
+            for error_type in error_types:
+                error_match = re.search(f'"{error_type}"\\s*:\\s*(\\[)', content)
+                if error_match:
+                    # 找到了错误类型的开始，但可能不完整
+                    if section not in result_dict:
+                        result_dict[section] = {}
+                    if error_type not in result_dict[section]:
+                        result_dict[section][error_type] = []
+                    section_progress[section]["partial_content"][error_type] = []
+                    logger.info(f"发现错误类型: {error_type}")
+        
+        elif section == "亮点分析":
+            # 尝试提取亮点类型
+            highlight_types = ["高级词汇", "亮点表达"]
+            for highlight_type in highlight_types:
+                highlight_match = re.search(f'"{highlight_type}"\\s*:\\s*(\\[)', content)
+                if highlight_match:
+                    # 找到了亮点类型的开始，但可能不完整
+                    if section not in result_dict:
+                        result_dict[section] = {}
+                    if highlight_type not in result_dict[section]:
+                        result_dict[section][highlight_type] = []
+                    section_progress[section]["partial_content"][highlight_type] = []
+                    logger.info(f"发现亮点类型: {highlight_type}")
+        
+        elif section == "写作建议":
+            # 尝试提取写作建议类型
+            suggestion_types = ["结构建议", "表达建议", "内容建议", "实用技巧"]
+            for suggestion_type in suggestion_types:
+                # 检查字符串类型
+                string_match = re.search(f'"{suggestion_type}"\\s*:\\s*"([^"]*)"', content)
+                if string_match:
+                    if section not in result_dict:
+                        result_dict[section] = {}
+                    result_dict[section][suggestion_type] = string_match.group(1)
+                    section_progress[section]["partial_content"][suggestion_type] = string_match.group(1)
+                    logger.info(f"提取部分内容-{section}-{suggestion_type}: {string_match.group(1)[:50]}...")
+                    continue
+                
+                # 检查数组类型的开始
+                array_match = re.search(f'"{suggestion_type}"\\s*:\\s*(\\[)', content)
+                if array_match:
+                    if section not in result_dict:
+                        result_dict[section] = {}
+                    if suggestion_type not in result_dict[section]:
+                        result_dict[section][suggestion_type] = []
+                    section_progress[section]["partial_content"][suggestion_type] = []
+                    logger.info(f"发现建议类型: {suggestion_type}")
 
 # 初始化模型配置和模型
 model_config = ModelConfig.from_env("deepseek")
