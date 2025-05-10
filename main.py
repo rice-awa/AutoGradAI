@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional, Union, Tuple, AsyncGenerator
+from typing import List, Dict, Any, Optional, Union, Tuple, AsyncGenerator, TypedDict, cast, Callable
 import os
 import json
 import re
@@ -9,19 +9,48 @@ from langchain_openai import ChatOpenAI
 from langchain_deepseek import ChatDeepSeek
 from langchain_core.messages import AIMessage
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.runnables import RunnableSerializable
 from prompts import letter_correction_prompt, ERROR_PATTERNS
 from logger import setup_logger
 
 # 配置日志
 logger = setup_logger(__name__)
+
 class ModelConfig:
-    """模型配置类"""
+    """模型配置类，用于存储和管理LLM模型的配置参数"""
     api_key: str
     model_name: str
     base_url: str
-    temperature: float = 0.0
-    max_tokens: Optional[int] = None
-    request_timeout: int = 120
+    temperature: float
+    max_tokens: Optional[int]
+    request_timeout: int
+
+    def __init__(
+        self, 
+        api_key: str, 
+        model_name: str, 
+        base_url: str, 
+        temperature: float = 0.0, 
+        max_tokens: Optional[int] = None, 
+        request_timeout: int = 120
+    ) -> None:
+        """
+        初始化模型配置
+        
+        Args:
+            api_key: API密钥
+            model_name: 模型名称
+            base_url: API基础URL
+            temperature: 温度参数，控制随机性，默认0.0
+            max_tokens: 最大生成token数，默认None
+            request_timeout: 请求超时时间(秒)，默认120
+        """
+        self.api_key = api_key
+        self.model_name = model_name
+        self.base_url = base_url
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.request_timeout = request_timeout
 
     @classmethod
     def from_env(cls, model_type: str = "deepseek") -> "ModelConfig":
@@ -32,7 +61,7 @@ class ModelConfig:
             model_type: 模型类型，支持 "deepseek" 或 "openai"
             
         Returns:
-            模型配置对象
+            ModelConfig: 模型配置对象
         
         Raises:
             ValueError: 当环境变量未设置或模型类型不支持时抛出异常
@@ -89,23 +118,52 @@ class ModelConfig:
                 request_timeout=self.request_timeout
             )
 
+class ErrorPosition(TypedDict):
+    """错误位置类型定义"""
+    start: int
+    end: int
 
-# deepseek 配置
-class deepseek_config:
-    API_KEY = os.getenv("DEEPSEEK_API_KEY")
-    LLM_CONFIG = {
-        "model": "deepseek-chat",
-        "api_key": API_KEY,
-        "base_url": "https://api.deepseek.com/v1",
-    }
+class ErrorInfo(TypedDict):
+    """错误信息类型定义"""
+    错误文本: str
+    错误位置: List[int]
+    错误说明: str
+    修改建议: str
+    模糊匹配: Optional[bool]
 
-# 保存LLM响应到日志文件的函数
+class ErrorAnalysis(TypedDict):
+    """错误分析类型定义"""
+    语法错误: List[ErrorInfo]
+    拼写错误: List[ErrorInfo]
+    标点错误: List[ErrorInfo]
+    用词错误: List[ErrorInfo]
+    其他错误: List[ErrorInfo]
+
+class ScoreInfo(TypedDict):
+    """评分信息类型定义"""
+    分数: str
+
+class CorrectionResult(TypedDict):
+    """批改结果类型定义"""
+    评分: ScoreInfo
+    错误分析: ErrorAnalysis
+    亮点分析: Dict[str, List[str]]
+    写作建议: str
+
+class StreamResult(TypedDict):
+    """流式结果类型定义"""
+    status: str
+    partial_result: Optional[Dict[str, Any]]
+    result: Optional[CorrectionResult]
+    error: Optional[str]
+
 def log_llm_response(response: Dict[str, Any], log_type: str = "response") -> None:
     """
     将LLM的响应保存到日志文件中，并打印到主日志
     
-    :param response: LLM的响应数据
-    :param log_type: 日志类型，用于文件名
+    Args:
+        response: LLM的响应数据
+        log_type: 日志类型，用于文件名
     """
     try:
         # 确保日志目录存在
@@ -129,7 +187,6 @@ def log_llm_response(response: Dict[str, Any], log_type: str = "response") -> No
     except Exception as e:
         logger.error(f"保存LLM {log_type}失败: {str(e)}")
 
-# 错误分析验证器类
 class ErrorAnalysisValidator:
     """
     错误分析验证器类，用于校验和修复错误位置索引
@@ -139,9 +196,12 @@ class ErrorAnalysisValidator:
         """
         验证错误位置，确保索引准确
         
-        :param essay: 原始作文文本
-        :param error_data: 错误分析数据
-        :return: 修正后的错误分析数据
+        Args:
+            essay: 原始作文文本
+            error_data: 错误分析数据
+        
+        Returns:
+            Dict[str, Any]: 修正后的错误分析数据
         """
         validated_data = error_data.copy()
         
@@ -150,23 +210,24 @@ class ErrorAnalysisValidator:
         
         # 遍历所有错误类别
         for category, errors in error_data['错误分析'].items():
-            validated_errors = []
+            validated_errors: List[ErrorInfo] = []
             
             for error in errors:
+                error_dict = cast(ErrorInfo, error)
                 # 确保错误文本字段存在
-                if '错误文本' not in error and '错误位置' in error:
-                    start, end = error['错误位置']
+                if '错误文本' not in error_dict and '错误位置' in error_dict:
+                    start, end = error_dict['错误位置']
                     if 0 <= start < len(essay) and 0 <= end <= len(essay) and start < end:
-                        error['错误文本'] = essay[start:end]
-                        logger.info(f"添加错误文本: '{error['错误文本']}' 位置: {start}-{end}")
+                        error_dict['错误文本'] = essay[start:end]
+                        logger.info(f"添加错误文本: '{error_dict['错误文本']}' 位置: {start}-{end}")
                     else:
                         logger.warning(f"索引超出范围: {start}-{end}, 文章长度: {len(essay)}")
                         continue
                 
                 # 使用正则表达式定位错误
-                if '错误文本' in error:
-                    error_text = error['错误文本']
-                    original_positions = error.get('错误位置', [0, 0])
+                if '错误文本' in error_dict:
+                    error_text = error_dict['错误文本']
+                    original_positions = error_dict.get('错误位置', [0, 0])
                     
                     try:
                         # 准备正则表达式模式 - 处理特殊字符
@@ -180,12 +241,12 @@ class ErrorAnalysisValidator:
                             if len(matches) > 1 and original_positions != [0, 0]:
                                 original_start = original_positions[0]
                                 closest_match = min(matches, key=lambda m: abs(m.start() - original_start))
-                                error['错误位置'] = [closest_match.start(), closest_match.end()]
+                                error_dict['错误位置'] = [closest_match.start(), closest_match.end()]
                                 logger.info(f"找到多个匹配，选择最接近原始位置的匹配: '{error_text}' 在 {closest_match.start()}-{closest_match.end()} 处")
                             else:
                                 # 使用第一个匹配
                                 first_match = matches[0]
-                                error['错误位置'] = [first_match.start(), first_match.end()]
+                                error_dict['错误位置'] = [first_match.start(), first_match.end()]
                                 logger.info(f"位置已更新: '{error_text}' 在 {first_match.start()}-{first_match.end()} 处找到")
                         else:
                             # 如果没有精确匹配，尝试模糊匹配
@@ -203,8 +264,8 @@ class ErrorAnalysisValidator:
                                 context_end = min(len(essay), approx_start + len(simplified_error) + 20)
                                 context = essay[context_start:context_end]
                                 
-                                error['错误位置'] = [approx_start, approx_start + len(simplified_error)]
-                                error['模糊匹配'] = True
+                                error_dict['错误位置'] = [approx_start, approx_start + len(simplified_error)]
+                                error_dict['模糊匹配'] = True
                                 logger.info(f"使用模糊匹配: '{error_text}' 可能在 {approx_start}-{approx_start + len(simplified_error)} 处，上下文: '{context}'")
                             else:
                                 logger.warning(f"无法匹配错误文本: '{error_text}'，保留原始位置信息")
@@ -212,7 +273,7 @@ class ErrorAnalysisValidator:
                         logger.error(f"处理错误文本时出错: {str(e)}")
                         continue
                 
-                validated_errors.append(error)
+                validated_errors.append(error_dict)
             
             validated_data['错误分析'][category] = validated_errors
         
@@ -221,9 +282,18 @@ class ErrorAnalysisValidator:
         
         return validated_data
 
-# 通用任务类
 class BaseTask:
+    """通用任务基类，用于构建提示模板"""
+    
     def __init__(self, prompt: str, input_variables: List[str], format_instruction: str) -> None:
+        """
+        初始化任务
+        
+        Args:
+            prompt: 提示模板字符串
+            input_variables: 输入变量列表
+            format_instruction: 格式说明
+        """
         self.prompt_template = prompt
         self.input_variables = input_variables
         self.format_instruction = format_instruction
@@ -231,6 +301,9 @@ class BaseTask:
     def get_prompt(self) -> PromptTemplate:
         """
         构造 PromptTemplate 对象
+        
+        Returns:
+            PromptTemplate: 构造好的提示模板
         """
         return PromptTemplate(
             template=self.prompt_template,
@@ -238,23 +311,37 @@ class BaseTask:
             partial_variables={"format_instructions": self.format_instruction}
         )
     
-# 通用处理器类
 class TaskHandler:
-    def __init__(self, model: Union[ChatOpenAI, ChatDeepSeek], parser: JsonOutputParser):
+    """任务处理器，负责执行LLM调用和结果处理"""
+    
+    def __init__(self, model: BaseChatModel, parser: JsonOutputParser) -> None:
+        """
+        初始化任务处理器
+        
+        Args:
+            model: 大语言模型实例
+            parser: JSON输出解析器
+        """
         self.model = model
         self.parser = parser
         self.validator = ErrorAnalysisValidator()
 
-    def process_task(self, task: BaseTask, inputs: Dict[str, Any]) -> Any:
+    def process_task(self, task: BaseTask, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """
         通用任务处理方法
         
-        :param task: 任务对象
-        :param inputs: 输入数据的字典
-        :return: 任务处理结果
+        Args:
+            task: 任务对象
+            inputs: 输入数据的字典
+            
+        Returns:
+            Dict[str, Any]: 任务处理结果
+            
+        Raises:
+            Exception: 任务处理失败时抛出异常
         """
         prompt = task.get_prompt()
-        chain = prompt | self.model | self.parser
+        chain: RunnableSerializable = prompt | self.model | self.parser
         
         # 记录处理开始
         logger.info(f"开始处理任务: {task.__class__.__name__}")
@@ -277,16 +364,22 @@ class TaskHandler:
             logger.error(f"任务处理失败: {str(e)}")
             raise
     
-    async def process_task_async(self, task: BaseTask, inputs: Dict[str, Any]) -> Any:
+    async def process_task_async(self, task: BaseTask, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """
         异步处理任务方法
         
-        :param task: 任务对象
-        :param inputs: 输入数据的字典
-        :return: 任务处理结果
+        Args:
+            task: 任务对象
+            inputs: 输入数据的字典
+            
+        Returns:
+            Dict[str, Any]: 任务处理结果
+            
+        Raises:
+            Exception: 任务处理失败时抛出异常
         """
         prompt = task.get_prompt()
-        chain = prompt | self.model | self.parser
+        chain: RunnableSerializable = prompt | self.model | self.parser
         
         # 记录处理开始
         logger.info(f"开始异步处理任务: {task.__class__.__name__}")
@@ -309,16 +402,22 @@ class TaskHandler:
             logger.error(f"异步任务处理失败: {str(e)}")
             raise
 
-    async def stream_task(self, task: BaseTask, inputs: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any], None]:
+    async def stream_task(self, task: BaseTask, inputs: Dict[str, Any]) -> AsyncGenerator[StreamResult, None]:
         """
         流式处理任务方法，支持实时返回部分结果
         
-        :param task: 任务对象
-        :param inputs: 输入数据的字典
-        :yield: 部分结果数据
+        Args:
+            task: 任务对象
+            inputs: 输入数据的字典
+            
+        Yields:
+            StreamResult: 流式处理的部分或完整结果
+            
+        Raises:
+            Exception: 流式处理失败时可能抛出异常
         """
         prompt = task.get_prompt()
-        chain = prompt | self.model
+        chain: RunnableSerializable = prompt | self.model
         
         # 记录处理开始
         logger.info(f"开始流式处理任务: {task.__class__.__name__}")
@@ -326,7 +425,7 @@ class TaskHandler:
             logger.info(f"作文长度: {len(inputs['essay'])} 字符")
         
         collected_content = ""
-        result_dict = {}
+        result_dict: Dict[str, Any] = {}
         
         # 正则表达式匹配键值对
         key_pattern = r'"([^"]+)"\s*:'
@@ -355,7 +454,7 @@ class TaskHandler:
                                 partial_result = json.loads(possible_json)
                                 if isinstance(partial_result, dict):
                                     result_dict = partial_result  # 完全替换为新解析的内容
-                                    yield {"status": "processing", "partial_result": result_dict}
+                                    yield {"status": "processing", "partial_result": result_dict, "result": None, "error": None}
                                     continue  # 如果完整解析成功，跳过部分解析
                             except json.JSONDecodeError:
                                 pass  # 继续尝试部分解析
@@ -382,7 +481,7 @@ class TaskHandler:
                     
                     # 如果有解析结果，返回部分结果
                     if result_dict:
-                        yield {"status": "processing", "partial_result": result_dict}
+                        yield {"status": "processing", "partial_result": result_dict, "result": None, "error": None}
                     
                 except Exception as e:
                     logger.error(f"解析流式内容时出错: {str(e)}")
@@ -400,17 +499,18 @@ class TaskHandler:
                     if 'essay' in inputs:
                         final_result = self.validator.validate_error_positions(inputs['essay'], final_result)
                     
-                    yield {"status": "completed", "result": final_result}
+                    yield {"status": "completed", "partial_result": None, "result": cast(CorrectionResult, final_result), "error": None}
             except Exception as e:
                 logger.error(f"解析最终流式结果时出错: {str(e)}")
-                yield {"status": "error", "error": str(e)}
+                yield {"status": "error", "partial_result": None, "result": None, "error": str(e)}
                 
         except Exception as e:
             logger.error(f"流式任务处理失败: {str(e)}")
-            yield {"status": "error", "error": str(e)}
+            yield {"status": "error", "partial_result": None, "result": None, "error": str(e)}
 
-# 初始化模型和解析器
-model = ChatDeepSeek(**deepseek_config.LLM_CONFIG)
+# 初始化模型配置和模型
+model_config = ModelConfig.from_env("deepseek")
+model = model_config.create_model()
 parser = JsonOutputParser()
 task_handler = TaskHandler(model, parser)
 
@@ -431,12 +531,15 @@ task_letter = BaseTask(
 
 
 # 任务处理函数
-def handler_letter_correct(essay: str) -> Dict[str, Any]:
+def handler_letter_correct(essay: str) -> CorrectionResult:
     """
     处理书信作文批改任务
     
-    :param essay: 待批改文章
-    :return: Json格式输出(py字典)
+    Args:
+        essay: 待批改文章
+        
+    Returns:
+        CorrectionResult: 批改结果，包含评分、错误分析、亮点分析和写作建议
     """
     logger.info(f"收到作文批改请求，作文长度: {len(essay)} 字符")
     result = task_handler.process_task(task_letter, {"essay": essay})
@@ -444,15 +547,18 @@ def handler_letter_correct(essay: str) -> Dict[str, Any]:
     # 直接打印完整响应到主日志
     logger.info(f"作文批改完成，结果: {json.dumps(result, ensure_ascii=False)}")
     
-    return result
+    return cast(CorrectionResult, result)
 
 # 异步任务处理函数
-async def handler_letter_correct_async(essay: str) -> Dict[str, Any]:
+async def handler_letter_correct_async(essay: str) -> CorrectionResult:
     """
     异步处理书信作文批改任务
     
-    :param essay: 待批改文章
-    :return: Json格式输出(py字典)
+    Args:
+        essay: 待批改文章
+        
+    Returns:
+        CorrectionResult: 批改结果，包含评分、错误分析、亮点分析和写作建议
     """
     logger.info(f"收到异步作文批改请求，作文长度: {len(essay)} 字符")
     result = await task_handler.process_task_async(task_letter, {"essay": essay})
@@ -460,15 +566,18 @@ async def handler_letter_correct_async(essay: str) -> Dict[str, Any]:
     # 直接打印完整响应到主日志
     logger.info(f"异步作文批改完成，结果: {json.dumps(result, ensure_ascii=False)}")
     
-    return result
+    return cast(CorrectionResult, result)
 
 # 流式处理函数
-async def handler_letter_correct_stream(essay: str) -> AsyncGenerator[Dict[str, Any], None]:
+async def handler_letter_correct_stream(essay: str) -> AsyncGenerator[StreamResult, None]:
     """
     流式处理书信作文批改任务
     
-    :param essay: 待批改文章
-    :yield: 部分结果或完整结果
+    Args:
+        essay: 待批改文章
+        
+    Yields:
+        StreamResult: 流式处理的部分或完整结果
     """
     logger.info(f"收到流式作文批改请求，作文长度: {len(essay)} 字符")
     
