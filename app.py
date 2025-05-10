@@ -4,15 +4,20 @@ import json
 import os
 import uuid
 import datetime
+import logging
 from threading import Thread
 from queue import Queue
 from main import handler_letter_correct, handler_letter_correct_async, log_llm_response, handler_letter_correct_stream
-from logger import setup_logger
+from logger import setup_logger, add_stream_filter
 
 app = Flask(__name__)
 
 # 配置日志
 logger = setup_logger(__name__)
+# 添加流式日志过滤器
+add_stream_filter(logger)
+# 将日志级别设置为INFO，详细日志写入文件但不在控制台显示
+logger.setLevel(logging.INFO)
 
 # 任务队列与结果缓存
 task_queue = Queue()
