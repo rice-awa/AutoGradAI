@@ -135,6 +135,7 @@ letter_correction_prompt = """
     }}
 }}
 
+{format_instructions}
 """
 
 # 用于构造各种错误类型的模式定义
