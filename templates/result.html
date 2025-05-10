@@ -532,10 +532,6 @@
             // 更新错误分析
             if (data.partial_result.错误分析) {
                 updateErrorAnalysis(data.partial_result.错误分析);
-                // 实时更新错误高亮
-                setTimeout(() => {
-                    highlightErrors();
-                }, 100);
             }
             
             // 更新亮点分析
@@ -546,6 +542,11 @@
             // 更新写作建议
             if (data.partial_result.写作建议) {
                 updateSuggestions(data.partial_result.写作建议);
+            }
+            
+            // 重新初始化错误高亮
+            if (window.highlightErrors) {
+                window.highlightErrors();
             }
         }
         
@@ -577,16 +578,14 @@
                     errorsHtml += `<div class="error-category">
                         <h3 class="error-type">${category}</h3>`;
                     
-                    for (const [index, error] of errors.entries()) {
+                    for (const error of errors) {
                         // 确保错误对象包含所有必要字段
-                        if (!error.错误文本 && !error.错误位置) {
+                        if (!error.错误文本 || !error.错误位置) {
                             console.warn('错误对象缺少必要字段:', error);
                             continue;
                         }
                         
-                        // 为每个错误项添加唯一ID
-                        const errorId = `error-item-${category}-${index}`;
-                        errorsHtml += generateErrorItemHtml(error, errorId);
+                        errorsHtml += generateErrorItemHtml(error);
                     }
                     
                     errorsHtml += `</div>`;
@@ -691,8 +690,8 @@
             suggestionContainer.innerHTML = suggestionsHtml;
         }
         
-        function generateErrorItemHtml(error, errorId) {
-            return `<div class="error-item" id="${errorId}">
+        function generateErrorItemHtml(error) {
+            return `<div class="error-item">
                 <div class="error-header">
                     <span class="error-position">
                         <span class="error-text-label">错误文本:</span> 
@@ -703,30 +702,25 @@
                     <button class="toggle-detail" onclick="toggleDetail(this)">显示详情</button>
                 </div>
                 <div class="error-detail">
-                    <p><strong>错误说明:</strong> ${error.错误说明 || ''}</p>
-                    <p><strong>修改建议:</strong> ${error.修改建议 || ''}</p>
+                    <p><strong>分析:</strong> ${error.详细分析}</p>
                     ${error.语法规则 ? `<p class="grammar-rule"><strong>语法规则:</strong> ${error.语法规则}</p>` : ''}
                     ${error.正确形式 ? `<p class="correct-form"><strong>正确形式:</strong> <span class="correct-text">${error.正确形式}</span></p>` : ''}
-                    ${error.详细分析 ? `<p><strong>详细分析:</strong> ${error.详细分析}</p>` : ''}
-                    ${error.正例 || error.反例 ? `
                     <div class="example-box">
-                        ${error.正例 ? `
                         <div class="good-example">
                             <i class="fas fa-check-circle"></i>
                             <strong>正确示例:</strong> 
                             ${Array.isArray(error.正例) ? 
                                 `<ul class="example-list">${error.正例.map(ex => `<li>${ex}</li>`).join('')}</ul>` : 
                                 error.正例}
-                        </div>` : ''}
-                        ${error.反例 ? `
+                        </div>
                         <div class="bad-example">
                             <i class="fas fa-times-circle"></i>
                             <strong>错误示例:</strong> 
                             ${Array.isArray(error.反例) ? 
                                 `<ul class="example-list">${error.反例.map(ex => `<li>${ex}</li>`).join('')}</ul>` : 
                                 error.反例}
-                        </div>` : ''}
-                    </div>` : ''}
+                        </div>
+                    </div>
                 </div>
             </div>`;
         }
@@ -738,178 +732,14 @@
             </div>`;
         }
         
-        // 高亮错误函数
-        function highlightErrors() {
-            const essayContainer = document.getElementById('essayContainer');
-            const essayContentElement = essayContainer.querySelector('.essay-content');
-            
-            if (!essayContentElement) {
-                console.error('找不到essay-content元素');
-                return;
-            }
-            
-            let essayText = essayContentElement.textContent || '';
-            let htmlContent = '';
-            let lastIndex = 0;
-            
-            // 获取所有错误并按开始位置排序
-            const errors = [];
-            const errorElements = document.querySelectorAll('.error-position');
-            
-            errorElements.forEach(element => {
-                const positionText = element.textContent;
-                // 匹配位置信息
-                const matches = positionText.match(/位置:\s*(\d+)\s*-\s*(\d+)/);
-                if (matches && matches.length === 3) {
-                    const start = parseInt(matches[1]);
-                    const end = parseInt(matches[2]);
-                    const errorItem = element.closest('.error-item');
-                    const errorType = errorItem.closest('.error-category').querySelector('.error-type').textContent;
-                    
-                    errors.push({
-                        start,
-                        end,
-                        type: errorType,
-                        element: errorItem
-                    });
-                }
-            });
-            
-            // 排序错误，从前到后处理
-            errors.sort((a, b) => a.start - b.start);
-            
-            // 处理每个错误
-            errors.forEach(error => {
-                // 添加错误前的正常文本
-                if (error.start > lastIndex) {
-                    const normalText = essayText.substring(lastIndex, error.start);
-                    htmlContent += preserveWhitespace(normalText);
-                }
-                
-                // 添加带高亮的错误文本
-                let errorText = '';
-                if (error.start < essayText.length && error.end <= essayText.length) {
-                    errorText = essayText.substring(error.start, error.end);
-                } else {
-                    console.warn(`错误索引超出范围: ${error.start}-${error.end}, 文本长度: ${essayText.length}`);
-                    // 尝试从错误元素中获取错误文本
-                    const errorTextElement = error.element.querySelector('.error-text-content');
-                    if (errorTextElement) {
-                        errorText = errorTextElement.textContent.replace(/^"(.*)"$/, '$1'); // 移除引号
-                    }
-                }
-                
-                htmlContent += `<span class="highlight-error" 
-                    data-type="${error.type}" 
-                    data-error-id="${error.element.id || ''}"
-                    data-start="${error.start}"
-                    data-end="${error.end}">${preserveWhitespace(errorText)}</span>`;
-                
-                lastIndex = error.end;
-            });
-            
-            // 添加最后一个错误后的正常文本
-            if (lastIndex < essayText.length) {
-                const normalText = essayText.substring(lastIndex);
-                htmlContent += preserveWhitespace(normalText);
-            }
-            
-            essayContentElement.innerHTML = htmlContent;
-            
-            // 添加错误点击交互
-            setupErrorInteractions();
-        }
-        
-        // 保留空白字符和换行
-        function preserveWhitespace(text) {
-            return text
-                .replace(/\n/g, '<br>')
-                .replace(/ /g, '&nbsp;')
-                .replace(/\t/g, '&nbsp;&nbsp;&nbsp;&nbsp;');
-        }
-        
-        // 设置错误交互功能
-        function setupErrorInteractions() {
-            // 添加错误悬停提示
-            document.querySelectorAll('.highlight-error').forEach(errorSpan => {
-                const tooltipId = `tooltip-${Math.random().toString(36).substr(2, 9)}`;
-                
-                // 悬停显示错误类型
-                errorSpan.addEventListener('mouseover', function() {
-                    // 检查是否已经存在tooltip
-                    if (this.querySelector('.error-tooltip')) return;
-                    
-                    const errorType = this.getAttribute('data-type');
-                    const tooltip = document.createElement('div');
-                    tooltip.className = 'error-tooltip';
-                    tooltip.id = tooltipId;
-                    tooltip.textContent = `错误类型: ${errorType}`;
-                    this.appendChild(tooltip);
-                    
-                    // 高亮对应的错误项
-                    const errorId = this.getAttribute('data-error-id');
-                    if (errorId) {
-                        const errorElement = document.getElementById(errorId);
-                        if (errorElement) {
-                            errorElement.classList.add('active-error');
-                        }
-                    }
-                });
-
-                // 鼠标移出时移除提示
-                errorSpan.addEventListener('mouseout', function() {
-                    const tooltip = document.getElementById(tooltipId);
-                    if (tooltip) {
-                        tooltip.remove();
-                    }
-                    
-                    // 移除高亮
-                    const errorId = this.getAttribute('data-error-id');
-                    if (errorId) {
-                        const errorElement = document.getElementById(errorId);
-                        if (errorElement) {
-                            errorElement.classList.remove('active-error');
-                        }
-                    }
-                });
-                
-                // 点击跳转到对应的错误详情
-                errorSpan.addEventListener('click', function() {
-                    const errorId = this.getAttribute('data-error-id');
-                    if (errorId) {
-                        const errorElement = document.getElementById(errorId);
-                        if (errorElement) {
-                            errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            
-                            // 展开错误详情
-                            const detailButton = errorElement.querySelector('.toggle-detail');
-                            const detail = errorElement.querySelector('.error-detail');
-                            if (detail && detail.style.display === 'none') {
-                                detail.style.display = 'block';
-                                if (detailButton) {
-                                    detailButton.textContent = '隐藏详情';
-                                }
-                            }
-                            
-                            // 添加闪烁效果
-                            errorElement.classList.add('highlight-pulse');
-                            setTimeout(() => {
-                                errorElement.classList.remove('highlight-pulse');
-                            }, 2000);
-                        }
-                    }
-                });
-            });
-        }
-        
         // 页面加载后开始检查
         document.addEventListener('DOMContentLoaded', function() {
-            // 每1秒检查一次状态，提高更新频率
+            // 每2秒检查一次状态
             checkStreamStatus(); // 立即检查一次
-            checkInterval = setInterval(checkStreamStatus, 1000);
+            checkInterval = setInterval(checkStreamStatus, 2000);
         });
         
-        // 添加toggleDetail函数
+        // 添加toggleDetail函数（如果原来没有）
         function toggleDetail(button) {
             const detail = button.parentElement.nextElementSibling;
             if (detail.style.display === 'block') {
@@ -919,18 +749,6 @@
                 detail.style.display = 'block';
                 button.textContent = '隐藏详情';
             }
-        }
-        
-        // 显示错误消息
-        function showError(message) {
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'error-message';
-            errorDiv.textContent = message;
-            document.body.appendChild(errorDiv);
-            
-            setTimeout(() => {
-                errorDiv.remove();
-            }, 5000);
         }
     </script>
     {% else %}
@@ -943,11 +761,6 @@
                 const detail = button.parentElement.nextElementSibling;
                 detail.style.display = 'none';
             });
-            
-            // 初始化高亮
-            if (window.highlightErrors) {
-                window.highlightErrors();
-            }
         });
     </script>
     {% endif %}

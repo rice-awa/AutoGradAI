@@ -2,96 +2,82 @@
 
 import logging
 import os
-import sys
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
-from typing import Optional
 
-def setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
-    """
-    设置并返回一个配置好的日志记录器
-    
-    Args:
-        name: 日志记录器名称
-        level: 日志级别，默认为INFO
-        
-    Returns:
-        logging.Logger: 配置好的日志记录器
-    """
-    # 创建日志记录器
-    logger = logging.getLogger(name)
-    
-    # 如果已经配置过，直接返回
-    if logger.handlers:
-        return logger
-        
-    # 设置日志级别
-    logger.setLevel(level)
-    
-    # 创建格式化器
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    # 创建控制台处理器，设置为WARNING级别，减少控制台输出
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.WARNING)
-    console_handler.setFormatter(formatter)
-    
-    # 确保日志目录存在
-    log_dir = os.path.join(os.getcwd(), 'logs')
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-    
-    # 创建文件处理器，保留所有日志级别
-    file_handler = RotatingFileHandler(
-        os.path.join(log_dir, f'{name}.log'),
-        maxBytes=10*1024*1024,  # 10MB
-        backupCount=5,
-        encoding='utf-8'
-    )
-    file_handler.setLevel(level)
-    file_handler.setFormatter(formatter)
-    
-    # 添加处理器到记录器
-    logger.addHandler(console_handler)
-    logger.addHandler(file_handler)
-    
-    return logger
+# 创建日志目录
+LOG_DIR = "logs"
+if not os.path.exists(LOG_DIR):
+    os.makedirs(LOG_DIR)
 
-# 创建一个过滤器，用于过滤流式处理中的频繁日志
-class StreamLogFilter(logging.Filter):
+class StreamUpdateFilter(logging.Filter):
     """
-    过滤流式处理中的频繁日志
+    过滤流式更新日志的过滤器，减少日志输出频率
     """
-    def __init__(self, name: str = "") -> None:
+    def __init__(self, name=''):
         super().__init__(name)
-        self.last_message: Optional[str] = None
-        self.repeat_count: int = 0
-        self.max_repeats: int = 3  # 最多显示相同消息的次数
-        
-    def filter(self, record: logging.LogRecord) -> bool:
-        # 如果是流式处理相关的日志，进行过滤
-        if "实时" in record.getMessage() or "流式" in record.getMessage():
-            # 如果是相同的消息，增加计数
-            if self.last_message == record.getMessage():
-                self.repeat_count += 1
-                # 如果超过最大重复次数，不记录
-                if self.repeat_count > self.max_repeats:
-                    return False
-            else:
-                # 如果是新消息，重置计数
-                self.last_message = record.getMessage()
-                self.repeat_count = 1
-                
-        return True
+        self.last_update_count = {}
+        self.log_interval = 100  # 每50次更新记录一次日志
 
-# 添加全局过滤器
-def add_stream_filter(logger: logging.Logger) -> None:
+    def filter(self, record):
+        # 如果不是流式更新日志，直接通过
+        if "流式任务" not in record.getMessage() or "更新第" not in record.getMessage():
+            return True
+            
+        # 提取任务ID和更新次数
+        try:
+            message = record.getMessage()
+            task_id = message.split("流式任务")[1].split("更新第")[0].strip()
+            update_count = int(message.split("更新第")[1].split("次")[0].strip())
+            
+            # 如果是第一次更新或者达到了记录间隔，则记录日志
+            if task_id not in self.last_update_count or \
+               update_count - self.last_update_count.get(task_id, 0) >= self.log_interval or \
+               "完成" in message:
+                self.last_update_count[task_id] = update_count
+                return True
+            return False
+        except:
+            # 解析失败，默认通过
+            return True
+
+def setup_logger(name):
     """
-    为日志记录器添加流式日志过滤器
+    配置并返回一个日志器。
+
+    :param name: 日志器的名称
+    :return: 配置好的日志器
+    """
+    # 创建一个日志器
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
     
-    Args:
-        logger: 要添加过滤器的日志记录器
-    """
-    stream_filter = StreamLogFilter()
-    logger.addFilter(stream_filter)
+    # 清除可能存在的处理器
+    if logger.handlers:
+        logger.handlers = []
+
+    # 创建一个文件处理器，将日志写入文件
+    log_file = os.path.join(LOG_DIR, f"{datetime.now().strftime('%Y-%m-%d')}.log")
+    file_handler = RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=5)
+    file_handler.setLevel(logging.INFO)
+
+    # 创建一个控制台处理器，将日志输出到控制台
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    
+    # 添加流式更新过滤器到控制台处理器
+    stream_filter = StreamUpdateFilter()
+    console_handler.addFilter(stream_filter)
+
+    # 创建一个日志格式器
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    # 将格式器添加到处理器
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+
+    # 将处理器添加到日志器
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    return logger

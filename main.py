@@ -11,15 +11,10 @@ from langchain_core.messages import AIMessage
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import RunnableSerializable
 from prompts import letter_correction_prompt, ERROR_PATTERNS
-from logger import setup_logger, add_stream_filter
-import logging
+from logger import setup_logger
 
 # 配置日志
 logger = setup_logger(__name__)
-# 添加流式日志过滤器
-add_stream_filter(logger)
-# 将日志级别设置为INFO，详细日志写入文件但不在控制台显示
-logger.setLevel(logging.INFO)
 
 class ModelConfig:
     """模型配置类，用于存储和管理LLM模型的配置参数"""
@@ -37,7 +32,7 @@ class ModelConfig:
         base_url: str, 
         temperature: float = 0.0, 
         max_tokens: Optional[int] = None, 
-        request_timeout: int = 120
+    request_timeout: int = 120
     ) -> None:
         """
         初始化模型配置
@@ -440,11 +435,6 @@ class TaskHandler:
             section: {"complete": False, "content": {}, "partial_content": {}} for section in key_sections
         }
         
-        # 错误对象的实时处理
-        error_objects: Dict[str, List[Dict[str, Any]]] = {}
-        current_error_object: Optional[Dict[str, Any]] = None
-        current_error_type: Optional[str] = None
-        
         try:
             # 流式处理LLM调用
             async for chunk in chain.astream(inputs):
@@ -452,14 +442,14 @@ class TaskHandler:
                     content = chunk.content
                 else:
                     content = str(chunk)
-                
+                    
                 # 累积内容
                 collected_content += content
                 token_buffer.append(content)
                 
                 # 控制发送频率，避免过于频繁的更新
                 current_time = asyncio.get_event_loop().time()
-                if current_time - last_yield_time < 0.2 and len(token_buffer) < 5:  # 降低间隔时间和token阈值
+                if current_time - last_yield_time < 0.3 and len(token_buffer) < 10:  # 至少间隔0.3秒或累积10个token
                     continue
                 
                 # 重置buffer和时间
@@ -479,12 +469,6 @@ class TaskHandler:
                                 partial_result = json.loads(possible_json)
                                 if isinstance(partial_result, dict):
                                     result_dict = partial_result  # 完全替换为新解析的内容
-                                    
-                                    # 如果有essay输入，实时验证错误位置
-                                    if 'essay' in inputs and '错误分析' in result_dict:
-                                        # 只验证错误位置，不替换整个结果
-                                        self._validate_error_positions_streaming(inputs['essay'], result_dict)
-                                    
                                     yield {"status": "processing", "partial_result": result_dict, "result": None, "error": None}
                                     continue  # 如果完整解析成功，跳过部分解析
                             except json.JSONDecodeError:
@@ -510,23 +494,23 @@ class TaskHandler:
                                 
                                 # 确保获取到完整的JSON对象或数组
                                 if self._is_balanced_json(section_content):
-                                    # 确保它是有效的JSON
-                                    if section_content.startswith('{') and section_content.endswith('}'):
-                                        section_json = json.loads(section_content)
-                                        result_dict[section] = section_json
+                                # 确保它是有效的JSON
+                                if section_content.startswith('{') and section_content.endswith('}'):
+                                    section_json = json.loads(section_content)
+                                    result_dict[section] = section_json
                                         section_progress[section]["complete"] = True
                                         section_progress[section]["content"] = section_json
                                         should_yield = True
                                         logger.info(f"完整解析 {section}: {json.dumps(section_json, ensure_ascii=False)[:100]}...")
-                                    elif section_content.startswith('[') and section_content.endswith(']'):
-                                        section_json = json.loads(section_content)
-                                        result_dict[section] = section_json
+                                elif section_content.startswith('[') and section_content.endswith(']'):
+                                    section_json = json.loads(section_content)
+                                    result_dict[section] = section_json
                                         section_progress[section]["complete"] = True
                                         section_progress[section]["content"] = section_json
                                         should_yield = True
                                         logger.info(f"完整解析 {section}: {json.dumps(section_json, ensure_ascii=False)[:100]}...")
-                                    elif section_content.startswith('"') and section_content.endswith('"'):
-                                        # 处理字符串值（如"写作建议"）
+                                elif section_content.startswith('"') and section_content.endswith('"'):
+                                    # 处理字符串值（如"写作建议"）
                                         string_value = section_content.strip('"')
                                         result_dict[section] = string_value
                                         section_progress[section]["complete"] = True
@@ -552,8 +536,7 @@ class TaskHandler:
                                         result_dict[section] = {}
                                     result_dict[section]["分数"] = score_match.group(1)
                                     section_progress[section]["partial_content"]["分数"] = score_match.group(1)
-                                    should_yield = True
-                                    logger.info(f"部分解析评分-分数: {score_match.group(1)}")
+                                    logger.info(f"提取部分内容-{section}-分数: {score_match.group(1)}")
                                 
                                 # 尝试提取评分理由
                                 reason_match = re.search(r'"评分理由"\s*:\s*"([^"]+)"', collected_content)
@@ -562,24 +545,9 @@ class TaskHandler:
                                         result_dict[section] = {}
                                     result_dict[section]["评分理由"] = reason_match.group(1)
                                     section_progress[section]["partial_content"]["评分理由"] = reason_match.group(1)
-                                    should_yield = True
-                                    logger.info(f"部分解析评分-理由: {reason_match.group(1)[:50]}...")
+                                    logger.info(f"提取部分内容-{section}-评分理由: {reason_match.group(1)[:50]}...")
                             
                             elif section == "错误分析":
-                                # 实时解析错误对象
-                                self._parse_error_objects_streaming(collected_content, result_dict, error_objects)
-                                
-                                # 如果有错误对象被解析出来，标记为需要发送
-                                if error_objects and any(len(errors) > 0 for errors in error_objects.values()):
-                                    if "错误分析" not in result_dict:
-                                        result_dict["错误分析"] = {}
-                                    
-                                    # 将解析出的错误对象添加到结果中
-                                    for error_type, errors in error_objects.items():
-                                        if errors:
-                                            result_dict["错误分析"][error_type] = errors
-                                            should_yield = True
-                                
                                 # 尝试提取各种错误类型
                                 error_types = ["语法错误", "拼写错误", "标点错误", "用词错误", "用词不当", "其他错误"]
                                 for error_type in error_types:
@@ -601,10 +569,6 @@ class TaskHandler:
                                                 section_progress[section]["partial_content"][error_type] = error_json
                                                 should_yield = True
                                                 logger.info(f"部分解析错误分析-{error_type}: {json.dumps(error_json, ensure_ascii=False)[:100]}...")
-                                                
-                                                # 实时验证错误位置
-                                                if 'essay' in inputs:
-                                                    self._validate_error_type_positions(inputs['essay'], result_dict, error_type)
                                         except json.JSONDecodeError:
                                             pass
                             
@@ -662,15 +626,11 @@ class TaskHandler:
                                                 section_progress[section]["partial_content"][suggestion_type] = array_json
                                                 should_yield = True
                                                 logger.info(f"部分解析写作建议-{suggestion_type}: {json.dumps(array_json, ensure_ascii=False)[:100]}...")
-                                        except json.JSONDecodeError:
+                            except json.JSONDecodeError:
                                             pass
                     
                     # 如果有解析结果，返回部分结果
                     if should_yield and result_dict:
-                        # 如果有essay输入，尝试对已解析的错误进行位置验证
-                        if 'essay' in inputs and '错误分析' in result_dict:
-                            self._validate_error_positions_streaming(inputs['essay'], result_dict)
-                            
                         yield {"status": "processing", "partial_result": result_dict, "result": None, "error": None}
                     
                 except Exception as e:
@@ -697,204 +657,6 @@ class TaskHandler:
         except Exception as e:
             logger.error(f"流式任务处理失败: {str(e)}")
             yield {"status": "error", "partial_result": None, "result": None, "error": str(e)}
-    
-    def _parse_error_objects_streaming(self, content: str, result_dict: Dict[str, Any], 
-                                     error_objects: Dict[str, List[Dict[str, Any]]]) -> None:
-        """
-        实时解析错误对象
-        
-        Args:
-            content: 收集到的内容
-            result_dict: 结果字典
-            error_objects: 错误对象字典
-        """
-        # 尝试提取单个错误对象
-        error_object_pattern = r'\{\s*"错误文本"\s*:\s*"([^"]*)"\s*,\s*"错误位置"\s*:\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]\s*,\s*"错误说明"\s*:\s*"([^"]*)"\s*,\s*"修改建议"\s*:\s*"([^"]*)"\s*\}'
-        
-        # 查找当前错误类型上下文
-        error_types = ["语法错误", "拼写错误", "标点错误", "用词错误", "用词不当", "其他错误"]
-        current_error_type = None
-        
-        for error_type in error_types:
-            if f'"{error_type}"' in content:
-                # 检查这个错误类型是否是最近出现的
-                type_pos = content.rfind(f'"{error_type}"')
-                array_start = content.find('[', type_pos)
-                if array_start != -1:
-                    # 找到了错误类型的数组开始
-                    current_error_type = error_type
-                    # 初始化错误类型数组
-                    if error_type not in error_objects:
-                        error_objects[error_type] = []
-        
-        if current_error_type:
-            # 查找所有匹配的错误对象
-            for match in re.finditer(error_object_pattern, content):
-                error_text = match.group(1)
-                start_pos = int(match.group(2))
-                end_pos = int(match.group(3))
-                error_desc = match.group(4)
-                fix_suggestion = match.group(5)
-                
-                # 创建错误对象
-                error_obj = {
-                    "错误文本": error_text,
-                    "错误位置": [start_pos, end_pos],
-                    "错误说明": error_desc,
-                    "修改建议": fix_suggestion
-                }
-                
-                # 检查是否已经存在相同的错误对象
-                is_new = True
-                for existing_error in error_objects.get(current_error_type, []):
-                    if (existing_error.get("错误文本") == error_text and 
-                        existing_error.get("错误位置") == [start_pos, end_pos]):
-                        is_new = False
-                        break
-                
-                # 如果是新的错误对象，添加到列表中
-                if is_new:
-                    if current_error_type not in error_objects:
-                        error_objects[current_error_type] = []
-                    error_objects[current_error_type].append(error_obj)
-                    logger.info(f"解析到新的错误对象: {error_type} - {error_text}")
-    
-    def _validate_error_positions_streaming(self, essay: str, result_dict: Dict[str, Any]) -> None:
-        """
-        实时验证错误位置
-        
-        Args:
-            essay: 原始作文文本
-            result_dict: 包含错误分析的结果字典
-        """
-        if '错误分析' not in result_dict:
-            return
-            
-        for category, errors in result_dict['错误分析'].items():
-            if not isinstance(errors, list):
-                continue
-                
-            for i, error in enumerate(errors):
-                if not isinstance(error, dict):
-                    continue
-                    
-                # 确保错误文本字段存在
-                if '错误文本' not in error and '错误位置' in error:
-                    start, end = error['错误位置']
-                    if 0 <= start < len(essay) and 0 <= end <= len(essay) and start < end:
-                        error['错误文本'] = essay[start:end]
-                        logger.info(f"实时添加错误文本: '{error['错误文本']}' 位置: {start}-{end}")
-                
-                # 使用正则表达式定位错误
-                if '错误文本' in error:
-                    error_text = error['错误文本']
-                    original_positions = error.get('错误位置', [0, 0])
-                    
-                    try:
-                        # 准备正则表达式模式 - 处理特殊字符
-                        pattern = re.escape(error_text)
-                        
-                        # 查找所有匹配
-                        matches = list(re.finditer(pattern, essay))
-                        
-                        if matches:
-                            # 如果有多个匹配，选择最接近原始位置的匹配
-                            if len(matches) > 1 and original_positions != [0, 0]:
-                                original_start = original_positions[0]
-                                closest_match = min(matches, key=lambda m: abs(m.start() - original_start))
-                                error['错误位置'] = [closest_match.start(), closest_match.end()]
-                                logger.info(f"实时更新位置: '{error_text}' 在 {closest_match.start()}-{closest_match.end()} 处")
-                            else:
-                                # 使用第一个匹配
-                                first_match = matches[0]
-                                error['错误位置'] = [first_match.start(), first_match.end()]
-                                logger.info(f"实时更新位置: '{error_text}' 在 {first_match.start()}-{first_match.end()} 处")
-                        else:
-                            # 如果没有精确匹配，尝试模糊匹配
-                            logger.debug(f"无法精确匹配错误文本: '{error_text}'，尝试模糊匹配")
-                            
-                            # 移除多余空格和标点符号进行模糊匹配
-                            simplified_error = re.sub(r'[^\w\s]', '', error_text).lower().strip()
-                            simplified_essay = essay.lower()
-                            
-                            fuzzy_match = re.search(simplified_error, simplified_essay)
-                            if fuzzy_match:
-                                # 从模糊匹配位置查找最接近的原始文本段落
-                                approx_start = fuzzy_match.start()
-                                error['错误位置'] = [approx_start, approx_start + len(simplified_error)]
-                                error['模糊匹配'] = True
-                                logger.info(f"实时模糊匹配: '{error_text}' 可能在 {approx_start}-{approx_start + len(simplified_error)} 处")
-                    except Exception as e:
-                        logger.error(f"实时处理错误文本时出错: {str(e)}")
-    
-    def _validate_error_type_positions(self, essay: str, result_dict: Dict[str, Any], error_type: str) -> None:
-        """
-        验证特定错误类型的位置
-        
-        Args:
-            essay: 原始作文文本
-            result_dict: 结果字典
-            error_type: 错误类型
-        """
-        if '错误分析' not in result_dict or error_type not in result_dict['错误分析']:
-            return
-            
-        errors = result_dict['错误分析'][error_type]
-        if not isinstance(errors, list):
-            return
-            
-        for i, error in enumerate(errors):
-            if not isinstance(error, dict):
-                continue
-                
-            # 确保错误文本字段存在
-            if '错误文本' not in error and '错误位置' in error:
-                start, end = error['错误位置']
-                if 0 <= start < len(essay) and 0 <= end <= len(essay) and start < end:
-                    error['错误文本'] = essay[start:end]
-                    logger.info(f"实时添加错误文本({error_type}): '{error['错误文本']}' 位置: {start}-{end}")
-            
-            # 使用正则表达式定位错误
-            if '错误文本' in error:
-                error_text = error['错误文本']
-                original_positions = error.get('错误位置', [0, 0])
-                
-                try:
-                    # 准备正则表达式模式 - 处理特殊字符
-                    pattern = re.escape(error_text)
-                    
-                    # 查找所有匹配
-                    matches = list(re.finditer(pattern, essay))
-                    
-                    if matches:
-                        # 如果有多个匹配，选择最接近原始位置的匹配
-                        if len(matches) > 1 and original_positions != [0, 0]:
-                            original_start = original_positions[0]
-                            closest_match = min(matches, key=lambda m: abs(m.start() - original_start))
-                            error['错误位置'] = [closest_match.start(), closest_match.end()]
-                            logger.info(f"实时更新位置({error_type}): '{error_text}' 在 {closest_match.start()}-{closest_match.end()} 处")
-                        else:
-                            # 使用第一个匹配
-                            first_match = matches[0]
-                            error['错误位置'] = [first_match.start(), first_match.end()]
-                            logger.info(f"实时更新位置({error_type}): '{error_text}' 在 {first_match.start()}-{first_match.end()} 处")
-                    else:
-                        # 如果没有精确匹配，尝试模糊匹配
-                        logger.debug(f"无法精确匹配错误文本({error_type}): '{error_text}'，尝试模糊匹配")
-                        
-                        # 移除多余空格和标点符号进行模糊匹配
-                        simplified_error = re.sub(r'[^\w\s]', '', error_text).lower().strip()
-                        simplified_essay = essay.lower()
-                        
-                        fuzzy_match = re.search(simplified_error, simplified_essay)
-                        if fuzzy_match:
-                            # 从模糊匹配位置查找最接近的原始文本段落
-                            approx_start = fuzzy_match.start()
-                            error['错误位置'] = [approx_start, approx_start + len(simplified_error)]
-                            error['模糊匹配'] = True
-                            logger.info(f"实时模糊匹配({error_type}): '{error_text}' 可能在 {approx_start}-{approx_start + len(simplified_error)} 处")
-                except Exception as e:
-                    logger.error(f"实时处理错误文本({error_type})时出错: {str(e)}")
     
     def _is_balanced_json(self, text: str) -> bool:
         """
