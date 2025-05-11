@@ -7,89 +7,165 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <style>
+        :root {
+            --primary-color: #4361ee;
+            --secondary-color: #3f37c9;
+            --danger-color: #f72585;
+            --danger-hover: #e5177e;
+            --success-color: #4cc9f0;
+            --success-hover: #38b6db;
+            --warning-color: #f8961e;
+            --info-color: #4895ef;
+            --light-color: #f8f9fa;
+            --dark-color: #212529;
+            --gray-color: #6c757d;
+            --border-radius: 8px;
+            --box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            --transition: all 0.3s ease;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f7fa;
+            color: #333;
+            line-height: 1.6;
+        }
+        
         .history-container {
-            max-width: 1000px;
-            margin: 0 auto;
+            max-width: 1200px;
+            margin: 30px auto;
+            padding: 0 20px;
         }
         
         .history-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
+            margin-bottom: 30px;
         }
         
         .history-title {
-            font-size: 28px;
-            color: #333;
+            font-size: 32px;
+            color: var(--dark-color);
             margin: 0;
+            font-weight: 700;
+            background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
         
         .history-actions {
             display: flex;
-            gap: 10px;
+            gap: 12px;
             align-items: center;
         }
         
-        .back-btn {
-            display: inline-block;
-            padding: 8px 16px;
-            background-color: #6c757d;
-            color: white;
-            text-decoration: none;
-            border-radius: 4px;
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 18px;
+            border-radius: var(--border-radius);
             font-size: 14px;
-            transition: background-color 0.3s;
+            font-weight: 500;
+            text-decoration: none;
+            cursor: pointer;
+            transition: var(--transition);
+            border: none;
+            gap: 8px;
+        }
+        
+        .btn i {
+            font-size: 14px;
+        }
+        
+        .back-btn {
+            background-color: var(--gray-color);
+            color: white;
         }
         
         .back-btn:hover {
             background-color: #5a6268;
-            color: white;
+            transform: translateY(-2px);
+            box-shadow: var(--box-shadow);
         }
         
         .btn-danger {
-            display: inline-block;
-            padding: 8px 16px;
-            background-color: #dc3545;
+            background-color: var(--danger-color);
             color: white;
-            border: none;
-            border-radius: 4px;
-            font-size: 14px;
-            cursor: pointer;
-            transition: background-color 0.3s;
         }
         
         .btn-danger:hover {
-            background-color: #c82333;
+            background-color: var(--danger-hover);
+            transform: translateY(-2px);
+            box-shadow: var(--box-shadow);
+        }
+        
+        .btn-success {
+            background-color: var(--success-color);
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background-color: var(--success-hover);
+            transform: translateY(-2px);
+            box-shadow: var(--box-shadow);
+        }
+        
+        .btn-primary {
+            background-color: var(--primary-color);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background-color: var(--secondary-color);
+            transform: translateY(-2px);
+            box-shadow: var(--box-shadow);
         }
         
         .history-stats {
-            background-color: #f8f9fa;
-            border-radius: 8px;
-            padding: 15px;
+            background-color: white;
+            border-radius: var(--border-radius);
+            padding: 20px;
             margin-bottom: 30px;
             display: flex;
             justify-content: space-around;
             flex-wrap: wrap;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            box-shadow: var(--box-shadow);
+            border: 1px solid rgba(0,0,0,0.05);
         }
         
         .stat-item {
             text-align: center;
-            padding: 10px;
-            min-width: 120px;
+            padding: 15px;
+            min-width: 150px;
+            position: relative;
+        }
+        
+        .stat-item:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            height: 50%;
+            width: 1px;
+            background-color: rgba(0,0,0,0.1);
         }
         
         .stat-value {
-            font-size: 24px;
+            font-size: 28px;
             font-weight: bold;
-            color: #007bff;
+            color: var(--primary-color);
             margin-bottom: 5px;
         }
         
         .stat-label {
             font-size: 14px;
-            color: #666;
+            color: var(--gray-color);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 500;
         }
         
         .history-list {
@@ -98,37 +174,43 @@
         
         .history-card {
             background-color: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            margin-bottom: 15px;
-            transition: transform 0.2s, box-shadow 0.2s;
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow);
+            margin-bottom: 20px;
+            transition: var(--transition);
             overflow: hidden;
+            border: 1px solid rgba(0,0,0,0.05);
         }
         
         .history-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
         }
         
         .history-card-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 15px 20px;
+            padding: 15px 25px;
             background-color: #f8f9fa;
             border-bottom: 1px solid #eee;
         }
         
         .history-date {
             font-size: 14px;
-            color: #666;
+            color: var(--gray-color);
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         
         .history-mode {
             font-size: 12px;
-            padding: 4px 8px;
-            border-radius: 12px;
-            font-weight: 500;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         
         .mode-sync {
@@ -147,21 +229,21 @@
         }
         
         .history-card-body {
-            padding: 15px 20px;
+            padding: 20px 25px;
             display: flex;
             justify-content: space-between;
         }
         
         .history-essay {
             flex: 1;
-            margin-right: 20px;
+            margin-right: 30px;
         }
         
         .history-essay-preview {
-            font-size: 14px;
+            font-size: 15px;
             color: #555;
             margin: 0;
-            line-height: 1.5;
+            line-height: 1.6;
             max-height: 80px;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -174,107 +256,212 @@
             display: flex;
             flex-direction: column;
             align-items: flex-end;
-            min-width: 120px;
+            min-width: 150px;
         }
         
         .history-score {
-            font-size: 24px;
+            font-size: 28px;
             font-weight: bold;
-            color: #007bff;
+            color: var(--primary-color);
             margin-bottom: 10px;
         }
         
         .history-errors {
             font-size: 14px;
-            color: #dc3545;
+            color: var(--danger-color);
             margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
         }
         
         .history-length {
             font-size: 13px;
-            color: #666;
+            color: var(--gray-color);
+            display: flex;
+            align-items: center;
+            gap: 5px;
         }
         
         .history-card-footer {
-            padding: 10px 20px;
+            padding: 15px 25px;
             text-align: right;
             border-top: 1px solid #eee;
             display: flex;
             justify-content: flex-end;
             align-items: center;
-            gap: 8px;
+            gap: 12px;
         }
         
         .btn-view {
-            display: inline-block;
-            padding: 8px 16px;
-            background-color: #007bff;
+            background-color: var(--primary-color);
             color: white;
-            text-decoration: none;
-            border-radius: 4px;
-            font-size: 14px;
-            transition: background-color 0.3s;
         }
         
         .btn-view:hover {
-            background-color: #0056b3;
+            background-color: var(--secondary-color);
         }
         
         .btn-export {
-            display: inline-block;
-            padding: 8px 16px;
-            background-color: #28a745;
+            background-color: var(--success-color);
             color: white;
-            text-decoration: none;
-            border-radius: 4px;
-            font-size: 14px;
-            transition: background-color 0.3s;
-            margin-right: 5px;
+            padding: 10px 15px;
         }
         
         .btn-export:hover {
-            background-color: #218838;
-            color: white;
+            background-color: var(--success-hover);
         }
         
         .btn-delete {
-            display: inline-block;
-            padding: 8px 16px;
-            background-color: #dc3545;
+            background-color: var(--danger-color);
             color: white;
-            border: none;
-            border-radius: 4px;
-            font-size: 14px;
-            cursor: pointer;
-            transition: background-color 0.3s;
+            padding: 10px 15px;
         }
         
         .btn-delete:hover {
-            background-color: #c82333;
+            background-color: var(--danger-hover);
         }
         
         .empty-history {
             text-align: center;
-            padding: 40px;
-            background-color: #f8f9fa;
-            border-radius: 8px;
-            color: #666;
+            padding: 60px 40px;
+            background-color: white;
+            border-radius: var(--border-radius);
+            color: var(--gray-color);
+            box-shadow: var(--box-shadow);
+            border: 1px solid rgba(0,0,0,0.05);
         }
         
         .empty-icon {
-            font-size: 48px;
-            color: #adb5bd;
-            margin-bottom: 15px;
+            font-size: 60px;
+            color: #dee2e6;
+            margin-bottom: 20px;
+            opacity: 0.7;
+        }
+        
+        .empty-history h3 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            color: var(--dark-color);
+        }
+        
+        .empty-history p {
+            font-size: 16px;
+            margin-bottom: 25px;
+        }
+        
+        /* 模态框样式 */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .modal.show {
+            display: flex;
+            opacity: 1;
+        }
+        
+        .modal-content {
+            background-color: white;
+            border-radius: var(--border-radius);
+            width: 100%;
+            max-width: 450px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transform: translateY(-20px);
+            transition: transform 0.3s ease;
+            overflow: hidden;
+        }
+        
+        .modal.show .modal-content {
+            transform: translateY(0);
+        }
+        
+        .modal-header {
+            padding: 20px 25px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .modal-header h3 {
+            margin: 0;
+            font-size: 18px;
+            color: var(--dark-color);
+        }
+        
+        .close {
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--gray-color);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        
+        .close:hover {
+            color: var(--danger-color);
+            transform: rotate(90deg);
+        }
+        
+        .modal-body {
+            padding: 25px;
+        }
+        
+        .modal-body p {
+            margin: 0;
+            font-size: 16px;
+            line-height: 1.6;
+        }
+        
+        .modal-footer {
+            padding: 15px 25px;
+            border-top: 1px solid #eee;
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+        
+        .btn-secondary {
+            background-color: white;
+            color: var(--gray-color);
+            border: 1px solid #ddd;
+        }
+        
+        .btn-secondary:hover {
+            background-color: #f8f9fa;
+            color: var(--dark-color);
         }
         
         @media (max-width: 768px) {
+            .history-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+            
+            .history-actions {
+                width: 100%;
+                justify-content: flex-start;
+                flex-wrap: wrap;
+            }
+            
             .history-card-body {
                 flex-direction: column;
             }
             
             .history-essay {
                 margin-right: 0;
-                margin-bottom: 15px;
+                margin-bottom: 20px;
             }
             
             .history-meta {
@@ -287,6 +474,19 @@
             .history-score {
                 margin-bottom: 0;
             }
+            
+            .stat-item {
+                min-width: 100%;
+                padding: 10px 0;
+            }
+            
+            .stat-item:not(:last-child)::after {
+                display: none;
+            }
+            
+            .stat-item:not(:last-child) {
+                border-bottom: 1px solid rgba(0,0,0,0.1);
+            }
         }
     </style>
 </head>
@@ -295,11 +495,11 @@
         <div class="history-header">
             <h1 class="history-title">批改历史记录</h1>
             <div class="history-actions">
-                <a href="/" class="back-btn"><i class="fas fa-arrow-left"></i> 返回首页</a>
-                <a href="{{ url_for('export_history') }}" class="btn-export" title="导出历史记录">
+                <a href="/" class="btn back-btn"><i class="fas fa-arrow-left"></i> 返回首页</a>
+                <a href="{{ url_for('export_history') }}" class="btn btn-success" title="导出历史记录">
                     <i class="fas fa-file-export"></i> 导出
                 </a>
-                <button id="clearHistoryBtn" class="btn-danger" title="清空所有历史记录">
+                <button id="clearHistoryBtn" class="btn btn-danger" title="清空所有历史记录">
                     <i class="fas fa-trash-alt"></i> 清空
                 </button>
             </div>
@@ -371,13 +571,13 @@
                             </div>
                         </div>
                         <div class="history-card-footer">
-                            <a href="{{ url_for('view_history_detail', history_id=record.id) }}" class="btn-view">
+                            <a href="{{ url_for('view_history_detail', history_id=record.id) }}" class="btn btn-view">
                                 <i class="fas fa-eye"></i> 查看详情
                             </a>
-                            <a href="{{ url_for('export_single_history', history_id=record.id) }}" class="btn-export" title="导出此记录">
+                            <a href="{{ url_for('export_single_history', history_id=record.id) }}" class="btn btn-export" title="导出此记录">
                                 <i class="fas fa-file-export"></i>
                             </a>
-                            <button class="btn-delete delete-history" data-id="{{ record.id }}" title="删除此记录">
+                            <button class="btn btn-delete delete-history" data-id="{{ record.id }}" title="删除此记录">
                                 <i class="fas fa-trash"></i>
                             </button>
                         </div>
@@ -391,14 +591,14 @@
                 </div>
                 <h3>暂无批改历史记录</h3>
                 <p>提交作文进行批改后，历史记录将显示在这里</p>
-                <a href="/" class="btn-primary" style="margin-top: 20px;">
+                <a href="/" class="btn btn-primary" style="margin-top: 20px;">
                     <i class="fas fa-pen"></i> 开始批改
                 </a>
             </div>
         {% endif %}
     </div>
 
-    <!-- 添加确认对话框 -->
+    <!-- 确认对话框 -->
     <div id="confirmDialog" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -409,13 +609,13 @@
                 <p id="confirmMessage">确定要执行此操作吗？</p>
             </div>
             <div class="modal-footer">
-                <button id="confirmCancel" class="btn-secondary">取消</button>
-                <button id="confirmOk" class="btn-danger">确定</button>
+                <button id="confirmCancel" class="btn btn-secondary">取消</button>
+                <button id="confirmOk" class="btn btn-danger">确定</button>
             </div>
         </div>
     </div>
 
-    <!-- 添加JavaScript -->
+    <!-- JavaScript -->
     <script>
         // 删除单条历史记录
         document.querySelectorAll('.delete-history').forEach(button => {
@@ -441,20 +641,33 @@
             const closeBtn = document.querySelector('.close');
             
             confirmMessage.textContent = message;
-            dialog.style.display = 'block';
             
-            confirmOk.onclick = function() {
-                dialog.style.display = 'none';
+            // 显示对话框并添加动画
+            dialog.classList.add('show');
+            document.body.style.overflow = 'hidden';
+            
+            // 确认按钮点击事件
+            const handleConfirm = () => {
+                dialog.classList.remove('show');
+                document.body.style.overflow = '';
                 if (confirmCallback) confirmCallback();
             };
             
-            confirmCancel.onclick = closeBtn.onclick = function() {
-                dialog.style.display = 'none';
+            // 取消按钮点击事件
+            const handleCancel = () => {
+                dialog.classList.remove('show');
+                document.body.style.overflow = '';
             };
             
+            // 设置事件监听器
+            confirmOk.onclick = handleConfirm;
+            confirmCancel.onclick = handleCancel;
+            closeBtn.onclick = handleCancel;
+            
+            // 点击模态框外部关闭
             window.onclick = function(event) {
-                if (event.target == dialog) {
-                    dialog.style.display = 'none';
+                if (event.target === dialog) {
+                    handleCancel();
                 }
             };
         }
@@ -500,4 +713,4 @@
         }
     </script>
 </body>
-</html> 
+</html>

@@ -100,7 +100,7 @@ def process_essay(essay: str):
         # 保存到历史记录
         history_id = save_correction_to_history(essay, result, "sync")
         if history_id:
-        result["history_id"] = history_id
+            result["history_id"] = history_id
         
         return result
     except Exception as e:
@@ -152,7 +152,7 @@ async def process_essay_async(essay: str, task_id: str):
         # 保存到历史记录（使用辅助函数）
         history_id = await save_history_async(essay, result, "async")
         if history_id:
-        result["history_id"] = history_id
+            result["history_id"] = history_id
         
         # 更新任务状态
         results_cache[task_id].update({
@@ -210,7 +210,7 @@ async def process_stream_essay(essay: str, task_id: str):
                 if "result" in chunk:
                     history_id = await save_history_async(essay, chunk["result"], "stream")
                     if history_id:
-                    stream_results[task_id]["history_id"] = history_id
+                        stream_results[task_id]["history_id"] = history_id
                 
                 logger.info(f"流式任务 {task_id} 完成")
                 break
