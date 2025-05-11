@@ -25,6 +25,44 @@
             margin: 0;
         }
         
+        .history-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .back-btn {
+            display: inline-block;
+            padding: 8px 16px;
+            background-color: #6c757d;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        
+        .back-btn:hover {
+            background-color: #5a6268;
+            color: white;
+        }
+        
+        .btn-danger {
+            display: inline-block;
+            padding: 8px 16px;
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        .btn-danger:hover {
+            background-color: #c82333;
+        }
+        
         .history-stats {
             background-color: #f8f9fa;
             border-radius: 8px;
@@ -161,6 +199,10 @@
             padding: 10px 20px;
             text-align: right;
             border-top: 1px solid #eee;
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 8px;
         }
         
         .btn-view {
@@ -176,6 +218,39 @@
         
         .btn-view:hover {
             background-color: #0056b3;
+        }
+        
+        .btn-export {
+            display: inline-block;
+            padding: 8px 16px;
+            background-color: #28a745;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 14px;
+            transition: background-color 0.3s;
+            margin-right: 5px;
+        }
+        
+        .btn-export:hover {
+            background-color: #218838;
+            color: white;
+        }
+        
+        .btn-delete {
+            display: inline-block;
+            padding: 8px 16px;
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        .btn-delete:hover {
+            background-color: #c82333;
         }
         
         .empty-history {
@@ -219,7 +294,15 @@
     <div class="container history-container">
         <div class="history-header">
             <h1 class="history-title">批改历史记录</h1>
-            <a href="/" class="back-btn"><i class="fas fa-arrow-left"></i> 返回首页</a>
+            <div class="history-actions">
+                <a href="/" class="back-btn"><i class="fas fa-arrow-left"></i> 返回首页</a>
+                <a href="{{ url_for('export_history') }}" class="btn-export" title="导出历史记录">
+                    <i class="fas fa-file-export"></i> 导出
+                </a>
+                <button id="clearHistoryBtn" class="btn-danger" title="清空所有历史记录">
+                    <i class="fas fa-trash-alt"></i> 清空
+                </button>
+            </div>
         </div>
         
         {% if history_records %}
@@ -291,6 +374,12 @@
                             <a href="{{ url_for('view_history_detail', history_id=record.id) }}" class="btn-view">
                                 <i class="fas fa-eye"></i> 查看详情
                             </a>
+                            <a href="{{ url_for('export_single_history', history_id=record.id) }}" class="btn-export" title="导出此记录">
+                                <i class="fas fa-file-export"></i>
+                            </a>
+                            <button class="btn-delete delete-history" data-id="{{ record.id }}" title="删除此记录">
+                                <i class="fas fa-trash"></i>
+                            </button>
                         </div>
                     </div>
                 {% endfor %}
@@ -308,5 +397,107 @@
             </div>
         {% endif %}
     </div>
+
+    <!-- 添加确认对话框 -->
+    <div id="confirmDialog" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>确认操作</h3>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p id="confirmMessage">确定要执行此操作吗？</p>
+            </div>
+            <div class="modal-footer">
+                <button id="confirmCancel" class="btn-secondary">取消</button>
+                <button id="confirmOk" class="btn-danger">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加JavaScript -->
+    <script>
+        // 删除单条历史记录
+        document.querySelectorAll('.delete-history').forEach(button => {
+            button.addEventListener('click', function() {
+                const historyId = this.getAttribute('data-id');
+                showConfirmDialog('确定要删除这条历史记录吗？', () => {
+                    deleteHistory(historyId);
+                });
+            });
+        });
+        
+        // 清空所有历史记录
+        document.getElementById('clearHistoryBtn').addEventListener('click', function() {
+            showConfirmDialog('确定要清空所有历史记录吗？此操作不可恢复！', clearAllHistory);
+        });
+        
+        // 显示确认对话框
+        function showConfirmDialog(message, confirmCallback) {
+            const dialog = document.getElementById('confirmDialog');
+            const confirmMessage = document.getElementById('confirmMessage');
+            const confirmOk = document.getElementById('confirmOk');
+            const confirmCancel = document.getElementById('confirmCancel');
+            const closeBtn = document.querySelector('.close');
+            
+            confirmMessage.textContent = message;
+            dialog.style.display = 'block';
+            
+            confirmOk.onclick = function() {
+                dialog.style.display = 'none';
+                if (confirmCallback) confirmCallback();
+            };
+            
+            confirmCancel.onclick = closeBtn.onclick = function() {
+                dialog.style.display = 'none';
+            };
+            
+            window.onclick = function(event) {
+                if (event.target == dialog) {
+                    dialog.style.display = 'none';
+                }
+            };
+        }
+        
+        // 删除历史记录
+        function deleteHistory(historyId) {
+            fetch(`/history/delete/${historyId}`, {
+                method: 'POST',
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // 删除成功，刷新页面
+                    location.reload();
+                } else {
+                    alert('删除失败: ' + (data.error || '未知错误'));
+                }
+            })
+            .catch(error => {
+                console.error('删除请求失败:', error);
+                alert('删除请求失败，请查看控制台了解详情');
+            });
+        }
+        
+        // 清空所有历史记录
+        function clearAllHistory() {
+            fetch('/history/clear', {
+                method: 'POST',
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // 清空成功，刷新页面
+                    location.reload();
+                } else {
+                    alert('清空失败: ' + (data.error || '未知错误'));
+                }
+            })
+            .catch(error => {
+                console.error('清空请求失败:', error);
+                alert('清空请求失败，请查看控制台了解详情');
+            });
+        }
+    </script>
 </body>
 </html> 

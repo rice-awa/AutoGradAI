@@ -3,3 +3,5 @@ langchain-core>=0.1.0
 langchain-openai>=0.0.5
 langchain-deepseek>=0.0.1
 python-dotenv>=1.0.0
+flask-sqlalchemy>=3.0.0
+psycopg2-binary>=2.9.5

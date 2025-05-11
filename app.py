@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template, jsonify, Response, redirect, url_for
+from flask import Flask, request, render_template, jsonify, Response, redirect, url_for, send_file
 import asyncio
 import json
 import os
@@ -8,8 +8,19 @@ from threading import Thread
 from queue import Queue
 from main import handler_letter_correct, handler_letter_correct_async, log_llm_response, handler_letter_correct_stream
 from logger import setup_logger
+from models import db, CorrectionHistory, init_db
+import csv
+import io
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
+
+# 配置数据库
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///correction_history.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# 初始化数据库
+init_db(app)
 
 # 配置日志
 logger = setup_logger(__name__)
@@ -22,6 +33,8 @@ stream_results = {}  # 存储流式响应结果
 # 批改历史记录存储
 correction_history = {}  # 使用内存存储批改历史记录
 
+# 注意：在异步函数中使用数据库操作时，必须确保在应用上下文中执行
+# 可以使用 with app.app_context(): 或者调用 save_history_async 辅助函数
 def save_correction_to_history(essay: str, result: dict, mode: str = "sync") -> str:
     """
     保存批改结果到历史记录
@@ -33,7 +46,6 @@ def save_correction_to_history(essay: str, result: dict, mode: str = "sync") -> 
     """
     try:
         history_id = str(uuid.uuid4())
-        timestamp = datetime.datetime.now()
         
         # 提取评分
         score = "未评分"
@@ -43,23 +55,29 @@ def save_correction_to_history(essay: str, result: dict, mode: str = "sync") -> 
         # 统计错误数量
         error_count = count_errors(result)
         
-        # 保存历史记录
-        correction_history[history_id] = {
-            "id": history_id,
-            "essay": essay,
-            "result": result,
-            "timestamp": timestamp.isoformat(),
-            "formatted_time": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-            "mode": mode,
-            "score": score,
-            "error_count": error_count,
-            "essay_length": len(essay)
-        }
+        # 创建数据库记录
+        history_record = CorrectionHistory(
+            id=history_id,
+            essay=essay,
+            result=result,
+            mode=mode,
+            score=score,
+            error_count=error_count
+        )
         
-        logger.info(f"批改历史已保存，ID: {history_id}, 模式: {mode}, 分数: {score}")
+        # 保存到数据库
+        db.session.add(history_record)
+        db.session.commit()
+        
+        logger.info(f"批改历史已保存到数据库，ID: {history_id}, 模式: {mode}, 分数: {score}")
         return history_id
     except Exception as e:
         logger.error(f"保存批改历史失败: {str(e)}")
+        # 尝试回滚事务
+        try:
+            db.session.rollback()
+        except Exception as rollback_error:
+            logger.error(f"回滚事务失败: {str(rollback_error)}")
         return ""
 
 def process_essay(essay: str):
@@ -81,6 +99,7 @@ def process_essay(essay: str):
         
         # 保存到历史记录
         history_id = save_correction_to_history(essay, result, "sync")
+        if history_id:
         result["history_id"] = history_id
         
         return result
@@ -130,8 +149,9 @@ async def process_essay_async(essay: str, task_id: str):
         # 调用异步批改函数
         result = await handler_letter_correct_async(essay)
         
-        # 保存到历史记录
-        history_id = save_correction_to_history(essay, result, "async")
+        # 保存到历史记录（使用辅助函数）
+        history_id = await save_history_async(essay, result, "async")
+        if history_id:
         result["history_id"] = history_id
         
         # 更新任务状态
@@ -186,9 +206,10 @@ async def process_stream_essay(essay: str, task_id: str):
                 stream_results[task_id]["status"] = "completed"
                 stream_results[task_id]["final_result"] = chunk.get("result")
                 
-                # 保存到历史记录
+                # 保存到历史记录（使用辅助函数）
                 if "result" in chunk:
-                    history_id = save_correction_to_history(essay, chunk["result"], "stream")
+                    history_id = await save_history_async(essay, chunk["result"], "stream")
+                    if history_id:
                     stream_results[task_id]["history_id"] = history_id
                 
                 logger.info(f"流式任务 {task_id} 完成")
@@ -229,6 +250,11 @@ async def process_dual_engine_async(essay: str, task_id: str):
         
         # 模拟双引擎处理
         result = await handler_letter_correct_async(essay)
+        
+        # 保存到历史记录（使用辅助函数）
+        history_id = await save_history_async(essay, result, "dual")
+        if history_id:
+            result["history_id"] = history_id
         
         # 更新任务状态
         results_cache[task_id].update({
@@ -534,13 +560,9 @@ def correction_history_page():
     """
     显示批改历史记录列表
     """
-    # 按时间倒序排序历史记录
-    sorted_history = sorted(
-        correction_history.values(),
-        key=lambda x: x["timestamp"],
-        reverse=True
-    )
-    return render_template("history.html", history_records=sorted_history)
+    # 从数据库中查询所有历史记录并按时间倒序排序
+    history_records = CorrectionHistory.query.order_by(CorrectionHistory.timestamp.desc()).all()
+    return render_template("history.html", history_records=history_records)
 
 @app.route("/history/<history_id>")
 def view_history_detail(history_id):
@@ -549,16 +571,153 @@ def view_history_detail(history_id):
     
     :param history_id: 历史记录ID
     """
-    if history_id not in correction_history:
+    # 从数据库中查询指定ID的历史记录
+    record = CorrectionHistory.query.get(history_id)
+    
+    if not record:
         return render_template("error.html", message="未找到该历史记录")
     
-    record = correction_history[history_id]
     return render_template("result.html", 
-                          essay=record["essay"], 
-                          result=record["result"], 
+                          essay=record.essay, 
+                          result=record.result, 
                           from_history=True,
-                          history_id=history_id,
-                          timestamp=record["formatted_time"])
+                          history_id=record.id,
+                          timestamp=record.formatted_time)
+
+@app.route("/history/delete/<history_id>", methods=["POST"])
+def delete_history(history_id):
+    """
+    删除指定的历史记录
+    
+    :param history_id: 历史记录ID
+    :return: JSON响应
+    """
+    try:
+        # 查询指定ID的历史记录
+        record = CorrectionHistory.query.get(history_id)
+        
+        if not record:
+            return jsonify({"success": False, "error": "未找到该历史记录"}), 404
+        
+        # 从数据库中删除
+        db.session.delete(record)
+        db.session.commit()
+        
+        logger.info(f"已删除历史记录，ID: {history_id}")
+        return jsonify({"success": True})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"删除历史记录失败: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/history/clear", methods=["POST"])
+def clear_history():
+    """
+    清空所有历史记录
+    
+    :return: JSON响应
+    """
+    try:
+        # 删除所有历史记录
+        CorrectionHistory.query.delete()
+        db.session.commit()
+        
+        logger.info("已清空所有历史记录")
+        return jsonify({"success": True})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"清空历史记录失败: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/history/export", methods=["GET"])
+def export_history():
+    """
+    导出所有历史记录为CSV文件
+    
+    :return: CSV文件下载
+    """
+    try:
+        # 查询所有历史记录
+        records = CorrectionHistory.query.order_by(CorrectionHistory.timestamp.desc()).all()
+        
+        # 创建CSV文件
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # 写入CSV头部
+        writer.writerow(['ID', '作文内容', '批改时间', '批改模式', '评分', '错误数量', '作文长度'])
+        
+        # 写入数据
+        for record in records:
+            writer.writerow([
+                record.id,
+                record.essay,
+                record.formatted_time,
+                record.mode,
+                record.score,
+                record.error_count,
+                record.essay_length
+            ])
+        
+        # 准备文件下载
+        output.seek(0)
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        return send_file(
+            io.BytesIO(output.getvalue().encode('utf-8-sig')),  # 使用UTF-8-SIG编码以支持Excel正确显示中文
+            mimetype='text/csv',
+            as_attachment=True,
+            download_name=f'批改历史记录_{timestamp}.csv'
+        )
+    except Exception as e:
+        logger.error(f"导出历史记录失败: {str(e)}")
+        return render_template("error.html", message=f"导出历史记录失败: {str(e)}")
+
+@app.route("/history/export/<history_id>", methods=["GET"])
+def export_single_history(history_id):
+    """
+    导出单条历史记录为JSON文件
+    
+    :param history_id: 历史记录ID
+    :return: JSON文件下载
+    """
+    try:
+        # 查询指定ID的历史记录
+        record = CorrectionHistory.query.get(history_id)
+        
+        if not record:
+            return render_template("error.html", message="未找到该历史记录")
+        
+        # 转换为字典
+        record_dict = record.to_dict()
+        
+        # 准备JSON文件下载
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        return send_file(
+            io.BytesIO(json.dumps(record_dict, ensure_ascii=False, indent=2).encode('utf-8')),
+            mimetype='application/json',
+            as_attachment=True,
+            download_name=f'批改记录_{history_id}_{timestamp}.json'
+        )
+    except Exception as e:
+        logger.error(f"导出单条历史记录失败: {str(e)}")
+        return render_template("error.html", message=f"导出历史记录失败: {str(e)}")
+
+async def save_history_async(essay: str, result: dict, mode: str = "sync") -> str:
+    """
+    在异步环境中安全地保存历史记录
+    
+    :param essay: 用户提交的作文
+    :param result: 批改结果
+    :param mode: 批改模式(sync/async/stream)
+    :return: 历史记录ID
+    """
+    try:
+        with app.app_context():
+            history_id = save_correction_to_history(essay, result, mode)
+            return history_id
+    except Exception as e:
+        logger.error(f"异步环境中保存历史记录失败: {str(e)}")
+        return ""
 
 if __name__ == "__main__":
     logger.info("启动应用服务器...")
