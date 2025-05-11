@@ -12,9 +12,12 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import RunnableSerializable
 from prompts import letter_correction_prompt, ERROR_PATTERNS
 from logger import setup_logger
+from dotenv import load_dotenv
 
 # 配置日志
 logger = setup_logger(__name__)
+# 加载 .env 文件
+load_dotenv()  
 
 class ModelConfig:
     """模型配置类，用于存储和管理LLM模型的配置参数"""

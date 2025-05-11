@@ -66,6 +66,11 @@
    
    # Windows CMD
    set OPENAI_API_KEY=your_openai_api_key_here
+
+   # 使用 `.env` 文件
+   - 在项目根目录下创建`.env`文件
+   - 编辑`.env`文件:`DEEPSEEK_API_KEY="your_deepseek_api_key_here"`
+
    ```
 
 ### 切换使用的模型

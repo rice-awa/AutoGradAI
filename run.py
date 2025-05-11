@@ -6,9 +6,12 @@ import os
 import sys
 import argparse
 from logger import setup_logger
+from dotenv import load_dotenv
 
 # 配置日志
 logger = setup_logger("run")
+# 加载 .env 文件
+load_dotenv()  
 
 def run_app(host='0.0.0.0', port=5000, debug=True):
     """启动Flask应用"""
@@ -18,16 +21,6 @@ def run_app(host='0.0.0.0', port=5000, debug=True):
         app.run(host=host, port=port, debug=debug)
     except Exception as e:
         logger.error(f"启动应用失败: {str(e)}")
-        sys.exit(1)
-
-def run_test():
-    """运行测试用例"""
-    try:
-        from main import main
-        logger.info("执行批改测试")
-        main()
-    except Exception as e:
-        logger.error(f"测试失败: {str(e)}")
         sys.exit(1)
 
 def create_log_dir():
@@ -71,7 +64,6 @@ def main():
     parser.add_argument('--host', default='0.0.0.0', help='主机地址')
     parser.add_argument('--port', type=int, default=5000, help='端口号')
     parser.add_argument('--no-debug', action='store_true', help='关闭调试模式')
-    parser.add_argument('--test', action='store_true', help='执行测试用例')
     
     args = parser.parse_args()
     
@@ -82,11 +74,7 @@ def main():
     if not check_dependencies() or not check_deepseek_api_key():
         sys.exit(1)
     
-    # 根据参数执行相应操作
-    if args.test:
-        run_test()
-    else:
-        run_app(args.host, args.port, not args.no_debug)
+    run_app(args.host, args.port, not args.no_debug)
 
 if __name__ == '__main__':
     main() 
