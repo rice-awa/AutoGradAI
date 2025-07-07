@@ -24,6 +24,22 @@
 - **错误位置验证**：智能索引匹配系统，确保精确定位错误位置
 - **类型提示**：使用Python类型注解提高代码可读性和可维护性
 
+## 流程展示
+- 初始界面提交作文
+  
+[![pVMrMYF.png](https://s21.ax1x.com/2025/07/07/pVMrMYF.png)](https://imgse.com/i/pVMrMYF)
+
+- 等待批改，流式传输数据，实时返回批改结果
+
+[![pVMr8yR.png](https://s21.ax1x.com/2025/07/07/pVMr8yR.png)](https://imgse.com/i/pVMr8yR)
+
+- 批改完成
+
+[![pVMrGO1.png](https://s21.ax1x.com/2025/07/07/pVMrGO1.png)](https://imgse.com/i/pVMrGO1)
+
+- 鼠标悬停可查看错误，点击即可跳转到错误
+
+[![pVMrQW4.png](https://s21.ax1x.com/2025/07/07/pVMrQW4.png)](https://imgse.com/i/pVMrQW4)
 ## 安装与使用
 
 ### 环境要求
