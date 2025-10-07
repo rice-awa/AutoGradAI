@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(if not exist \"claude_md\\fix\" mkdir \"claude_md\\fix\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

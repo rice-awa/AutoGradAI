@@ -50,31 +50,92 @@ def check_dependencies():
         return False
     
     return True
-def check_deepseek_api_key():
-    """检查DeepSeek API密钥是否设置"""
-    if not os.getenv("DEEPSEEK_API_KEY"):
-        logger.error("未设置DeepSeek API密钥")
-        logger.info("请设置DEEPSEEK_API_KEY环境变量")
-        return False
+def check_api_key():
+    """检查API密钥是否设置"""
+    import json
+
+    # 尝试从config.json读取配置
+    config_path = os.path.join(os.getcwd(), 'config.json')
+    provider = "deepseek"  # 默认值
+
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                provider = config.get('model', {}).get('provider', 'deepseek')
+        except Exception as e:
+            logger.warning(f"读取配置文件失败: {e}, 使用默认provider: deepseek")
+
+    # 根据provider检查对应的API密钥
+    if provider.lower() == "deepseek":
+        if not os.getenv("DEEPSEEK_API_KEY"):
+            logger.error("未设置DeepSeek API密钥")
+            logger.info("请设置DEEPSEEK_API_KEY环境变量")
+            return False
+    elif provider.lower() == "openai":
+        if not os.getenv("OPENAI_API_KEY"):
+            logger.error("未设置OpenAI API密钥")
+            logger.info("请设置OPENAI_API_KEY环境变量")
+            return False
+    else:
+        # 对于其他provider，使用OpenAI兼容格式
+        logger.warning(f"使用未预定义的provider: {provider}，将采用OpenAI兼容格式")
+        # 尝试从环境变量获取API密钥，格式为 {PROVIDER}_API_KEY
+        api_key_env = f"{provider.upper()}_API_KEY"
+        api_key = os.getenv(api_key_env)
+        if not api_key:
+            # 如果没有特定的环境变量，尝试使用通用的API_KEY
+            api_key = os.getenv("API_KEY")
+            if not api_key:
+                logger.error(f"未设置 {api_key_env} 或 API_KEY 环境变量")
+                logger.info(f"请设置 {api_key_env} 或通用的 API_KEY 环境变量")
+                return False
+            logger.info(f"使用通用环境变量 API_KEY 作为 {provider} 的密钥")
+
+    logger.info(f"使用模型提供商: {provider}")
     return True
 
 def main():
     """主函数"""
+    import json
+
     parser = argparse.ArgumentParser(description='作文批改系统启动脚本')
-    parser.add_argument('--host', default='0.0.0.0', help='主机地址')
-    parser.add_argument('--port', type=int, default=5000, help='端口号')
+    parser.add_argument('--host', default=None, help='主机地址')
+    parser.add_argument('--port', type=int, default=None, help='端口号')
     parser.add_argument('--no-debug', action='store_true', help='关闭调试模式')
-    
+
     args = parser.parse_args()
-    
+
+    # 从config.json读取配置
+    config_path = os.path.join(os.getcwd(), 'config.json')
+    host = args.host or '0.0.0.0'
+    port = args.port or 5000
+    debug = not args.no_debug
+
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                server_config = config.get('server', {})
+                # 命令行参数优先级高于配置文件
+                if args.host is None:
+                    host = server_config.get('host', '0.0.0.0')
+                if args.port is None:
+                    port = server_config.get('port', 5000)
+                if not args.no_debug:
+                    debug = server_config.get('debug', True)
+            logger.info(f"从配置文件加载服务器设置: host={host}, port={port}, debug={debug}")
+        except Exception as e:
+            logger.warning(f"读取配置文件失败: {e}, 使用默认设置")
+
     # 创建日志目录
     create_log_dir()
-    
+
     # 检查依赖项
-    if not check_dependencies() or not check_deepseek_api_key():
+    if not check_dependencies() or not check_api_key():
         sys.exit(1)
-    
-    run_app(args.host, args.port, not args.no_debug)
+
+    run_app(host, port, debug)
 
 if __name__ == '__main__':
     main() 

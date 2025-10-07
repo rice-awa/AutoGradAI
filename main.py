@@ -59,13 +59,13 @@ class ModelConfig:
     def from_env(cls, model_type: str = "deepseek") -> "ModelConfig":
         """
         从环境变量加载模型配置
-        
+
         Args:
             model_type: 模型类型，支持 "deepseek" 或 "openai"
-            
+
         Returns:
             ModelConfig: 模型配置对象
-        
+
         Raises:
             ValueError: 当环境变量未设置或模型类型不支持时抛出异常
         """
@@ -73,7 +73,7 @@ class ModelConfig:
             api_key = os.getenv("DEEPSEEK_API_KEY")
             if not api_key:
                 raise ValueError("环境变量 DEEPSEEK_API_KEY 未设置")
-            
+
             return cls(
                 api_key=api_key,
                 model_name="deepseek-chat",
@@ -85,7 +85,7 @@ class ModelConfig:
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
                 raise ValueError("环境变量 OPENAI_API_KEY 未设置")
-            
+
             return cls(
                 api_key=api_key,
                 model_name="gpt-4o",
@@ -95,6 +95,71 @@ class ModelConfig:
             )
         else:
             raise ValueError(f"不支持的模型类型: {model_type}")
+
+    @classmethod
+    def from_config(cls, config_path: str = "config.json") -> "ModelConfig":
+        """
+        从JSON配置文件加载模型配置
+
+        Args:
+            config_path: 配置文件路径，默认为 "config.json"
+
+        Returns:
+            ModelConfig: 模型配置对象
+
+        Raises:
+            FileNotFoundError: 当配置文件不存在时抛出异常
+            ValueError: 当配置文件格式错误或缺少必要字段时抛出异常
+        """
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(f"配置文件 {config_path} 不存在")
+
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+
+            model_config = config.get('model', {})
+            provider = model_config.get('provider', 'deepseek').lower()
+
+            if provider not in model_config:
+                raise ValueError(f"配置文件中缺少 {provider} 的配置信息")
+
+            provider_config = model_config[provider]
+
+            # 根据provider获取对应的API密钥
+            if provider == "deepseek":
+                api_key = os.getenv("DEEPSEEK_API_KEY")
+                if not api_key:
+                    raise ValueError("环境变量 DEEPSEEK_API_KEY 未设置")
+            elif provider == "openai":
+                api_key = os.getenv("OPENAI_API_KEY")
+                if not api_key:
+                    raise ValueError("环境变量 OPENAI_API_KEY 未设置")
+            else:
+                # 对于其他provider，使用OpenAI兼容格式
+                logger.warning(f"使用未预定义的provider: {provider}，将采用OpenAI兼容格式")
+                # 尝试从环境变量获取API密钥，格式为 {PROVIDER}_API_KEY
+                api_key_env = f"{provider.upper()}_API_KEY"
+                api_key = os.getenv(api_key_env)
+                if not api_key:
+                    # 如果没有特定的环境变量，尝试使用通用的API_KEY
+                    api_key = os.getenv("API_KEY")
+                    if not api_key:
+                        raise ValueError(f"环境变量 {api_key_env} 或 API_KEY 未设置")
+                    logger.info(f"使用通用环境变量 API_KEY 作为 {provider} 的密钥")
+
+            return cls(
+                api_key=api_key,
+                model_name=provider_config.get('model_name'),
+                base_url=provider_config.get('base_url'),
+                temperature=provider_config.get('temperature', 0.0),
+                max_tokens=provider_config.get('max_tokens'),
+                request_timeout=provider_config.get('request_timeout', 120)
+            )
+        except json.JSONDecodeError as e:
+            raise ValueError(f"配置文件格式错误: {e}")
+        except KeyError as e:
+            raise ValueError(f"配置文件缺少必要字段: {e}")
 
     def create_model(self) -> BaseChatModel:
         """
@@ -116,6 +181,7 @@ class ModelConfig:
             return ChatOpenAI(
                 model=self.model_name,
                 api_key=self.api_key,
+                base_url=self.base_url,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
                 request_timeout=self.request_timeout
@@ -1020,8 +1086,18 @@ class TaskHandler:
                     logger.info(f"发现建议类型: {suggestion_type}")
 
 # 初始化模型配置和模型
-model_config = ModelConfig.from_env("deepseek")
+# 优先尝试从config.json加载配置，如果失败则使用环境变量
+try:
+    model_config = ModelConfig.from_config("config.json")
+    logger.info("从config.json加载模型配置成功")
+except (FileNotFoundError, ValueError) as e:
+    logger.warning(f"从config.json加载配置失败: {e}, 尝试从环境变量加载")
+    # 回退到环境变量加载，默认使用deepseek
+    model_config = ModelConfig.from_env("deepseek")
+    logger.info("从环境变量加载模型配置成功")
+
 model = model_config.create_model()
+logger.info(f"使用模型: {model_config.model_name}")
 parser = JsonOutputParser()
 task_handler = TaskHandler(model, parser)
 

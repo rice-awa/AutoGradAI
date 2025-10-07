@@ -1,0 +1,24 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 5000,
+    "debug": true
+  },
+  "model": {
+    "provider": "deepseek",
+    "deepseek": {
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com/v1",
+      "temperature": 0.0,
+      "max_tokens": null,
+      "request_timeout": 120
+    },
+    "openai": {
+      "model_name": "gpt-4o",
+      "base_url": "https://api.openai.com/v1",
+      "temperature": 0.0,
+      "max_tokens": null,
+      "request_timeout": 120
+    }
+  }
+}
