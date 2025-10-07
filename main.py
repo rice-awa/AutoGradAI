@@ -1087,11 +1087,13 @@ class TaskHandler:
 
 # 初始化模型配置和模型
 # 优先尝试从config.json加载配置，如果失败则使用环境变量
+
 try:
     model_config = ModelConfig.from_config("config.json")
     logger.info("从config.json加载模型配置成功")
 except (FileNotFoundError, ValueError) as e:
     logger.warning(f"从config.json加载配置失败: {e}, 尝试从环境变量加载")
+    
     # 回退到环境变量加载，默认使用deepseek
     model_config = ModelConfig.from_env("deepseek")
     logger.info("从环境变量加载模型配置成功")
