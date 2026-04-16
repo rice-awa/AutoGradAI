@@ -247,6 +247,26 @@ curl -X POST http://localhost:5000/api/submit \
 }
 ```
 
+#### 提交作文（同步，直接返回结果）
+
+```bash
+curl -X POST http://localhost:5000/api/submit-sync \
+  -H "Content-Type: application/json" \
+  -d '{"essay":"Your English essay here...","engine":"single"}'
+```
+
+双引擎同步批改（DeepSeek + OpenAI）：
+
+```bash
+curl -X POST http://localhost:5000/api/submit-sync \
+  -H "Content-Type: application/json" \
+  -d '{"essay":"Your English essay here...","engine":"dual"}'
+```
+
+> 注意：`/api/submit-sync` 仅支持单引擎，传入 `engine=dual` 会返回 400。双引擎请使用异步提交 `/api/submit`。
+
+> 说明：双引擎模式会读取 `config.json -> model -> dual_engine -> providers`，仅使用当前可用 provider。若仅检测到一个可用模型，会自动降级为单引擎结果，并在返回结果的 `双引擎详情.mode` 中标记为 `degraded_single_engine`。
+
 #### 查询批改状态
 
 ```bash
@@ -257,6 +277,9 @@ curl http://localhost:5000/api/status/<task_id>
 ```json
 {
   "status": "completed",
+  "degraded": false,
+  "degraded_reason": null,
+  "dual_engine_mode": "dual_engine",
   "result": {
     "评分": { ... },
     "错误分析": { ... },

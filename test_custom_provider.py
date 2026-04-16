@@ -88,7 +88,10 @@ def test_config_example():
             config = json.load(f)
 
         print(f"\n支持的Provider列表:")
-        providers = [k for k in config['model'].keys() if k != 'provider']
+        providers = [
+            k for k in config['model'].keys()
+            if k not in ('provider', 'dual_engine')
+        ]
         for provider in providers:
             provider_config = config['model'][provider]
             print(f"\n  • {provider}:")

@@ -307,6 +307,11 @@ function initFormSubmission() {
             }
         } else {
             // 同步提交也显示加载状态
+            const engineType = document.querySelector('input[name="engine_type"]:checked').value;
+            if (engineType === 'dual') {
+                document.querySelector('input[name="engine_type"][value="single"]').checked = true;
+                alert('同步双引擎已下线，已自动切换为单引擎同步批改');
+            }
             showLoading();
         }
     });

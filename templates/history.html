@@ -227,6 +227,11 @@
             background-color: #fff8e1;
             color: #ff8f00;
         }
+
+        .mode-dual {
+            background-color: #f3e5f5;
+            color: #6a1b9a;
+        }
         
         .history-card-body {
             padding: 20px 25px;
@@ -550,9 +555,11 @@
                             <div class="history-mode 
                                 {% if record.mode == 'sync' %}mode-sync
                                 {% elif record.mode == 'async' %}mode-async
+                                {% elif 'dual' in record.mode %}mode-dual
                                 {% else %}mode-stream{% endif %}">
                                 {% if record.mode == 'sync' %}同步批改
                                 {% elif record.mode == 'async' %}异步批改
+                                {% elif 'dual' in record.mode %}双引擎批改
                                 {% else %}流式批改{% endif %}
                             </div>
                         </div>
