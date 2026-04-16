@@ -87,7 +87,7 @@
        "provider": "deepseek",  // 可选: deepseek, openai, ollama, 或其他
        "deepseek": {
          "model_name": "deepseek-chat",
-         "base_url": "https://api.deepseek.com/v1",
+         "base_url": "https://api.deepseek.com",
          "temperature": 0.0,
          "request_timeout": 120
        }

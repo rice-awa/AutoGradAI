@@ -34,7 +34,7 @@ def create_log_dir():
 def check_dependencies():
     """检查依赖项是否安装"""
     required_modules = [
-        'flask', 'langchain_core', 'langchain_openai', 'langchain_deepseek'
+        'flask', 'langchain', 'langchain_core', 'langchain_openai'
     ]
     
     missing = []
@@ -66,6 +66,17 @@ def check_api_key():
         except Exception as e:
             logger.warning(f"读取配置文件失败: {e}, 使用默认provider: deepseek")
 
+    provider_config = {}
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                provider_config = config.get('model', {}).get(provider, {})
+        except Exception:
+            provider_config = {}
+
+    base_url = str(provider_config.get("base_url", ""))
+
     # 根据provider检查对应的API密钥
     if provider.lower() == "deepseek":
         if not os.getenv("DEEPSEEK_API_KEY"):
@@ -87,6 +98,10 @@ def check_api_key():
             # 如果没有特定的环境变量，尝试使用通用的API_KEY
             api_key = os.getenv("API_KEY")
             if not api_key:
+                # 兼容本地模型网关（例如Ollama）
+                if "localhost" in base_url or "127.0.0.1" in base_url:
+                    logger.info(f"{provider} 使用本地地址 {base_url}，允许使用占位密钥")
+                    return True
                 logger.error(f"未设置 {api_key_env} 或 API_KEY 环境变量")
                 logger.info(f"请设置 {api_key_env} 或通用的 API_KEY 环境变量")
                 return False
