@@ -5,8 +5,7 @@ import re
 import asyncio
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
-from langchain_openai import ChatOpenAI
-from langchain_deepseek import ChatDeepSeek
+from langchain.chat_models import init_chat_model
 from langchain_core.messages import AIMessage
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import RunnableSerializable
@@ -27,12 +26,14 @@ class ModelConfig:
     temperature: float
     max_tokens: Optional[int]
     request_timeout: int
+    provider: str
 
     def __init__(
         self, 
         api_key: str, 
         model_name: str, 
-        base_url: str, 
+        base_url: str,
+        provider: str = "openai_compatible",
         temperature: float = 0.0, 
         max_tokens: Optional[int] = None, 
         request_timeout: int = 120
@@ -51,6 +52,7 @@ class ModelConfig:
         self.api_key = api_key
         self.model_name = model_name
         self.base_url = base_url
+        self.provider = provider
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.request_timeout = request_timeout
@@ -77,7 +79,8 @@ class ModelConfig:
             return cls(
                 api_key=api_key,
                 model_name="deepseek-chat",
-                base_url="https://api.deepseek.com/v1",
+                base_url="https://api.deepseek.com",
+                provider="deepseek",
                 temperature=0.0,
                 request_timeout=120
             )
@@ -90,6 +93,7 @@ class ModelConfig:
                 api_key=api_key,
                 model_name="gpt-4o",
                 base_url="https://api.openai.com/v1",
+                provider="openai",
                 temperature=0.0,
                 request_timeout=120
             )
@@ -126,32 +130,13 @@ class ModelConfig:
 
             provider_config = model_config[provider]
 
-            # 根据provider获取对应的API密钥
-            if provider == "deepseek":
-                api_key = os.getenv("DEEPSEEK_API_KEY")
-                if not api_key:
-                    raise ValueError("环境变量 DEEPSEEK_API_KEY 未设置")
-            elif provider == "openai":
-                api_key = os.getenv("OPENAI_API_KEY")
-                if not api_key:
-                    raise ValueError("环境变量 OPENAI_API_KEY 未设置")
-            else:
-                # 对于其他provider，使用OpenAI兼容格式
-                logger.warning(f"使用未预定义的provider: {provider}，将采用OpenAI兼容格式")
-                # 尝试从环境变量获取API密钥，格式为 {PROVIDER}_API_KEY
-                api_key_env = f"{provider.upper()}_API_KEY"
-                api_key = os.getenv(api_key_env)
-                if not api_key:
-                    # 如果没有特定的环境变量，尝试使用通用的API_KEY
-                    api_key = os.getenv("API_KEY")
-                    if not api_key:
-                        raise ValueError(f"环境变量 {api_key_env} 或 API_KEY 未设置")
-                    logger.info(f"使用通用环境变量 API_KEY 作为 {provider} 的密钥")
+            api_key = cls._resolve_api_key(provider, provider_config.get("base_url", ""))
 
             return cls(
                 api_key=api_key,
                 model_name=provider_config.get('model_name'),
                 base_url=provider_config.get('base_url'),
+                provider=provider,
                 temperature=provider_config.get('temperature', 0.0),
                 max_tokens=provider_config.get('max_tokens'),
                 request_timeout=provider_config.get('request_timeout', 120)
@@ -160,6 +145,39 @@ class ModelConfig:
             raise ValueError(f"配置文件格式错误: {e}")
         except KeyError as e:
             raise ValueError(f"配置文件缺少必要字段: {e}")
+    
+    @staticmethod
+    def _resolve_api_key(provider: str, base_url: str = "") -> str:
+        """解析不同 provider 的 API Key，支持 OpenAI 兼容 provider。"""
+        provider_lower = provider.lower()
+        if provider_lower == "deepseek":
+            api_key = os.getenv("DEEPSEEK_API_KEY")
+            if not api_key:
+                raise ValueError("环境变量 DEEPSEEK_API_KEY 未设置")
+            return api_key
+        
+        if provider_lower == "openai":
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise ValueError("环境变量 OPENAI_API_KEY 未设置")
+            return api_key
+
+        api_key_env = f"{provider_upper}_API_KEY" if (provider_upper := provider.upper()) else "API_KEY"
+        api_key = os.getenv(api_key_env) or os.getenv("API_KEY")
+        
+        if api_key:
+            if os.getenv(api_key_env):
+                logger.info(f"使用环境变量 {api_key_env} 作为 {provider} 的密钥")
+            else:
+                logger.info(f"使用通用环境变量 API_KEY 作为 {provider} 的密钥")
+            return api_key
+
+        # 兼容本地/无鉴权服务（如 Ollama 的本地网关）
+        if "localhost" in base_url or "127.0.0.1" in base_url:
+            logger.warning(f"{provider} 未配置密钥，检测到本地地址，使用占位密钥")
+            return "ollama"
+
+        raise ValueError(f"环境变量 {api_key_env} 或 API_KEY 未设置")
 
     def create_model(self) -> BaseChatModel:
         """
@@ -168,24 +186,17 @@ class ModelConfig:
         Returns:
             BaseChatModel: 大语言模型实例
         """
-        if "deepseek" in self.model_name.lower():
-            return ChatDeepSeek(
-                model=self.model_name,
-                api_key=self.api_key,
-                base_url=self.base_url,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                request_timeout=self.request_timeout
-            )
-        else:
-            return ChatOpenAI(
-                model=self.model_name,
-                api_key=self.api_key,
-                base_url=self.base_url,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                request_timeout=self.request_timeout
-            )
+        # 统一使用 OpenAI 兼容链路（DeepSeek / OpenAI / Ollama / 自定义 Provider）
+        model = init_chat_model(
+            model=self.model_name,
+            model_provider="openai",
+            api_key=self.api_key,
+            base_url=self.base_url,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            timeout=self.request_timeout,
+        )
+        return cast(BaseChatModel, model)
 
 class ErrorPosition(TypedDict):
     """错误位置类型定义"""
