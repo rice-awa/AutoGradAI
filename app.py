@@ -2,6 +2,7 @@ from flask import Flask, request, render_template, jsonify, Response, redirect, 
 import asyncio
 import json
 import os
+import re
 import uuid
 import datetime
 from threading import Thread
@@ -276,13 +277,35 @@ async def process_dual_engine_async(essay: str, task_id: str):
         logger.error(f"双引擎任务 {task_id} 失败: {str(e)}")
 
 def _normalize_score(score_value):
-    """将评分归一化为整数，无法解析时返回None。"""
+    """将评分归一化为数值，无法解析时返回None。"""
     if isinstance(score_value, (int, float)):
-        return int(score_value)
+        return float(score_value)
     if isinstance(score_value, str):
-        digits = ''.join(ch for ch in score_value if ch.isdigit())
-        if digits:
-            return int(digits)
+        text = score_value.strip()
+        if not text:
+            return None
+
+        # 先尝试直接解析纯数字/小数
+        try:
+            return float(text)
+        except ValueError:
+            pass
+
+        # 处理类似 "18/20" 的格式，优先取分子作为得分值
+        fraction_match = re.search(r"(-?\d+(?:\.\d+)?)\s*/\s*(-?\d+(?:\.\d+)?)", text)
+        if fraction_match:
+            try:
+                return float(fraction_match.group(1))
+            except ValueError:
+                return None
+
+        # 兜底：提取第一个数字（支持小数）
+        first_number_match = re.search(r"-?\d+(?:\.\d+)?", text)
+        if first_number_match:
+            try:
+                return float(first_number_match.group(0))
+            except ValueError:
+                return None
     return None
 
 def merge_dual_engine_results(
@@ -418,6 +441,16 @@ async def dual_engine_correct_async(essay: str) -> dict:
     )
 
     if isinstance(primary_result, Exception):
+        if not isinstance(secondary_result, Exception):
+            logger.warning(
+                f"双引擎降级为单引擎: primary_provider={primary_provider}, error={primary_result}"
+            )
+            return _degraded_dual_result(
+                secondary_result,
+                secondary_provider,
+                primary_provider,
+                f"{primary_provider} 失败，自动降级为 {secondary_provider}: {primary_result}"
+            )
         raise primary_result
 
     if isinstance(secondary_result, Exception):
