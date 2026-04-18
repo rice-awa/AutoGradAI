@@ -2,11 +2,19 @@ from flask import Flask, request, render_template, jsonify, Response, redirect, 
 import asyncio
 import json
 import os
+import re
 import uuid
 import datetime
 from threading import Thread
 from queue import Queue
-from main import handler_letter_correct, handler_letter_correct_async, log_llm_response, handler_letter_correct_stream
+from main import (
+    handler_letter_correct,
+    handler_letter_correct_async,
+    handler_letter_correct_async_with_provider,
+    get_task_handler_by_provider,
+    log_llm_response,
+    handler_letter_correct_stream
+)
 from logger import setup_logger
 from models import db, CorrectionHistory, init_db
 import csv
@@ -230,7 +238,7 @@ async def process_stream_essay(essay: str, task_id: str):
 # 双引擎批改函数（目前是框架，尚未实现具体功能）
 async def process_dual_engine_async(essay: str, task_id: str):
     """
-    使用双引擎批改作文（DeepSeek + Qwen）
+    使用双引擎批改作文（DeepSeek + OpenAI）
 
     :param essay: 用户提交的作文
     :param task_id: 任务ID
@@ -245,11 +253,8 @@ async def process_dual_engine_async(essay: str, task_id: str):
             "progress": "正在使用双引擎进行批改..."
         })
         
-        # 这里应该实现两个模型的并行调用
-        # TODO: 实现双引擎调用和结果合并逻辑
-        
-        # 模拟双引擎处理
-        result = await handler_letter_correct_async(essay)
+        # 并行调用 DeepSeek / OpenAI 两个引擎
+        result = await dual_engine_correct_async(essay)
         
         # 保存到历史记录（使用辅助函数）
         history_id = await save_history_async(essay, result, "dual")
@@ -270,6 +275,193 @@ async def process_dual_engine_async(essay: str, task_id: str):
             "error": str(e)
         })
         logger.error(f"双引擎任务 {task_id} 失败: {str(e)}")
+
+def _normalize_score(score_value):
+    """将评分归一化为数值，无法解析时返回None。"""
+    if isinstance(score_value, (int, float)):
+        return float(score_value)
+    if isinstance(score_value, str):
+        text = score_value.strip()
+        if not text:
+            return None
+
+        # 先尝试直接解析纯数字/小数
+        try:
+            return float(text)
+        except ValueError:
+            pass
+
+        # 处理类似 "18/20" 的格式，优先取分子作为得分值
+        fraction_match = re.search(r"(-?\d+(?:\.\d+)?)\s*/\s*(-?\d+(?:\.\d+)?)", text)
+        if fraction_match:
+            try:
+                return float(fraction_match.group(1))
+            except ValueError:
+                return None
+
+        # 兜底：提取第一个数字（支持小数）
+        first_number_match = re.search(r"-?\d+(?:\.\d+)?", text)
+        if first_number_match:
+            try:
+                return float(first_number_match.group(0))
+            except ValueError:
+                return None
+    return None
+
+def merge_dual_engine_results(
+    primary: dict, secondary: dict, primary_provider: str = "deepseek", secondary_provider: str = "openai"
+) -> dict:
+    """
+    合并双引擎结果：主引擎为 DeepSeek，辅引擎为 OpenAI。
+    """
+    merged = dict(primary or {})
+
+    primary_error = (primary or {}).get("错误分析", {})
+    secondary_error = (secondary or {}).get("错误分析", {})
+    merged_error = {}
+    categories = set(primary_error.keys()) | set(secondary_error.keys())
+    for category in categories:
+        primary_items = primary_error.get(category, []) or []
+        secondary_items = secondary_error.get(category, []) or []
+        seen = set()
+        merged_items = []
+        for item in primary_items + secondary_items:
+            item_key = (
+                item.get("错误文本"),
+                tuple(item.get("错误位置", [])),
+                item.get("错误说明"),
+                item.get("修改建议"),
+            )
+            if item_key in seen:
+                continue
+            seen.add(item_key)
+            merged_items.append(item)
+        merged_error[category] = merged_items
+    merged["错误分析"] = merged_error
+
+    primary_highlights = (primary or {}).get("亮点分析", {})
+    secondary_highlights = (secondary or {}).get("亮点分析", {})
+    merged_highlights = {}
+    highlight_categories = set(primary_highlights.keys()) | set(secondary_highlights.keys())
+    for category in highlight_categories:
+        p = primary_highlights.get(category, []) or []
+        s = secondary_highlights.get(category, []) or []
+        merged_highlights[category] = list(dict.fromkeys(p + s))
+    merged["亮点分析"] = merged_highlights
+
+    p_score_text = (primary or {}).get("评分", {}).get("分数")
+    s_score_text = (secondary or {}).get("评分", {}).get("分数")
+    p_score = _normalize_score(p_score_text)
+    s_score = _normalize_score(s_score_text)
+    if p_score is not None and s_score is not None:
+        avg_score = round((p_score + s_score) / 2)
+        merged.setdefault("评分", {})
+        merged["评分"]["分数"] = str(avg_score)
+
+    secondary_suggestion = (secondary or {}).get("写作建议")
+    if secondary_suggestion:
+        merged["写作建议"] = f"{(primary or {}).get('写作建议', '')}\n\n【交叉校验补充】\n{secondary_suggestion}".strip()
+
+    merged["双引擎详情"] = {
+        "mode": "dual_engine",
+        "primary_engine": primary_provider,
+        "secondary_engine": secondary_provider,
+        "primary_result": primary,
+        "secondary_result": secondary
+    }
+    return merged
+
+def _resolve_dual_engine_providers() -> list[str]:
+    """
+    读取双引擎 provider 配置，并过滤出当前可用 provider 列表。
+    """
+    configured_providers: list[str] = []
+    try:
+        with open("config.json", "r", encoding="utf-8") as f:
+            config = json.load(f)
+        dual_engine = config.get("model", {}).get("dual_engine", {})
+        configured_providers = dual_engine.get("providers", [])
+        if not configured_providers:
+            primary = dual_engine.get("primary_provider", "deepseek")
+            secondary = dual_engine.get("secondary_provider", "openai")
+            configured_providers = [primary, secondary]
+    except Exception:
+        configured_providers = ["deepseek", "openai"]
+
+    unique_providers = list(dict.fromkeys([provider for provider in configured_providers if provider]))
+    available_providers: list[str] = []
+    for provider in unique_providers:
+        try:
+            get_task_handler_by_provider(provider)
+            available_providers.append(provider)
+        except Exception as e:
+            logger.warning(f"provider 不可用，已跳过: provider={provider}, error={e}")
+
+    if not available_providers:
+        raise ValueError("未找到可用的双引擎 provider，请检查 dual_engine 配置或 API Key")
+
+    return available_providers
+
+def _degraded_dual_result(primary_result: dict, primary_provider: str, secondary_provider: str, reason: str) -> dict:
+    """
+    当第二引擎不可用时，回退为单引擎结果并附带降级信息。
+    """
+    degraded = dict(primary_result or {})
+    degraded["双引擎详情"] = {
+        "mode": "degraded_single_engine",
+        "primary_engine": primary_provider,
+        "secondary_engine": secondary_provider,
+        "degraded_reason": reason,
+        "primary_result": primary_result,
+        "secondary_result": None
+    }
+    return degraded
+
+async def dual_engine_correct_async(essay: str) -> dict:
+    """
+    双引擎并行批改（DeepSeek + OpenAI）并合并结果。
+    """
+    available_providers = _resolve_dual_engine_providers()
+    primary_provider = available_providers[0]
+    secondary_provider = available_providers[1] if len(available_providers) > 1 else None
+
+    if secondary_provider is None:
+        primary_result = await handler_letter_correct_async_with_provider(essay, primary_provider)
+        return _degraded_dual_result(
+            primary_result,
+            primary_provider,
+            "unavailable",
+            "仅检测到一个可用模型，双引擎自动降级为单引擎"
+        )
+
+    primary_task = handler_letter_correct_async_with_provider(essay, primary_provider)
+    secondary_task = handler_letter_correct_async_with_provider(essay, secondary_provider)
+    primary_result, secondary_result = await asyncio.gather(
+        primary_task, secondary_task, return_exceptions=True
+    )
+
+    if isinstance(primary_result, Exception):
+        if not isinstance(secondary_result, Exception):
+            logger.warning(
+                f"双引擎降级为单引擎: primary_provider={primary_provider}, error={primary_result}"
+            )
+            return _degraded_dual_result(
+                secondary_result,
+                secondary_provider,
+                primary_provider,
+                f"{primary_provider} 失败，自动降级为 {secondary_provider}: {primary_result}"
+            )
+        raise primary_result
+
+    if isinstance(secondary_result, Exception):
+        logger.warning(
+            f"双引擎降级为单引擎: secondary_provider={secondary_provider}, error={secondary_result}"
+        )
+        return _degraded_dual_result(
+            primary_result, primary_provider, secondary_provider, str(secondary_result)
+        )
+
+    return merge_dual_engine_results(primary_result, secondary_result, primary_provider, secondary_provider)
 
 def background_task_processor():
     """
@@ -326,6 +518,8 @@ def index():
         if process_type == "sync":
             try:
                 # 同步处理模式
+                if engine_type == "dual":
+                    logger.info("同步双引擎已下线，自动回退到单引擎同步批改")
                 result = process_essay(essay)
                 return render_template("result.html", essay=essay, result=result)
             except Exception as e:
@@ -371,6 +565,33 @@ def api_submit():
         "status": "queued"
     })
 
+@app.route("/api/submit-sync", methods=["POST"])
+def api_submit_sync():
+    """
+    API端点 - 同步提交作文并直接返回结果
+    """
+    payload = request.json or {}
+    essay = payload.get("essay")
+    engine_type = payload.get("engine", "single")
+    if not essay:
+        return jsonify({"error": "请提交作文内容"}), 400
+
+    try:
+        if engine_type == "dual":
+            return jsonify({
+                "status": "error",
+                "error": "同步双引擎已下线，请改用 /api/submit 异步双引擎"
+            }), 400
+        result = process_essay(essay)
+        return jsonify({
+            "status": "completed",
+            "engine": engine_type,
+            "result": result
+        })
+    except Exception as e:
+        logger.error(f"同步API批改失败: {str(e)}")
+        return jsonify({"status": "error", "error": str(e)}), 500
+
 @app.route("/api/status/<task_id>", methods=["GET"])
 def api_status(task_id):
     """
@@ -385,9 +606,15 @@ def api_status(task_id):
     
     # 如果任务完成，返回结果
     if status_data.get("status") == "completed":
+        result_data = status_data.get("result") or {}
+        dual_detail = result_data.get("双引擎详情", {})
+        degraded = dual_detail.get("mode") == "degraded_single_engine"
         return jsonify({
             "status": "completed",
-            "result": status_data.get("result")
+            "result": result_data,
+            "degraded": degraded,
+            "degraded_reason": dual_detail.get("degraded_reason") if degraded else None,
+            "dual_engine_mode": dual_detail.get("mode")
         })
     
     # 如果任务出错，返回错误信息

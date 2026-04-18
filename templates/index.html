@@ -243,7 +243,7 @@
                     <label class="radio-option">
                         <input type="radio" name="engine_type" value="dual"> 
                         <span>双引擎</span>
-                        <small class="option-description">DeepSeek+Qwen (更高精度)</small>
+                        <small class="option-description">异步可用（按配置自动选择可用模型）</small>
                     </label>
                 </div>
             </div>
@@ -313,6 +313,10 @@
             
             // 如果选择了同步处理，使用默认表单提交
             if (processType === 'sync') {
+                if (engineType === 'dual') {
+                    document.querySelector('input[name="engine_type"][value="single"]').checked = true;
+                    alert('同步双引擎已下线，已自动切换为单引擎同步批改');
+                }
                 showLoading();
                 return; // 允许表单正常提交
             }

@@ -1113,6 +1113,7 @@ model = model_config.create_model()
 logger.info(f"使用模型: {model_config.model_name}")
 parser = JsonOutputParser()
 task_handler = TaskHandler(model, parser)
+provider_task_handlers: Dict[str, TaskHandler] = {}
 
 # 具体任务定义
 task_letter = BaseTask(
@@ -1149,6 +1150,65 @@ def handler_letter_correct(essay: str) -> CorrectionResult:
     
     return cast(CorrectionResult, result)
 
+def _load_provider_config(provider: str, config_path: str = "config.json") -> ModelConfig:
+    """
+    从配置文件中按 provider 加载模型配置。
+
+    Args:
+        provider: 模型提供方，如 deepseek/openai/ollama/custom
+        config_path: 配置文件路径
+
+    Returns:
+        ModelConfig: 对应 provider 的模型配置
+    """
+    provider_key = provider.lower()
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"配置文件 {config_path} 不存在")
+
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+
+    model_config = config.get("model", {})
+    if provider_key not in model_config:
+        raise ValueError(f"配置文件中未找到 provider={provider_key} 的配置")
+
+    selected_provider_config = model_config[provider_key]
+    api_key = ModelConfig._resolve_api_key(provider_key, selected_provider_config.get("base_url", ""))
+
+    return ModelConfig(
+        api_key=api_key,
+        model_name=selected_provider_config.get("model_name"),
+        base_url=selected_provider_config.get("base_url"),
+        provider=provider_key,
+        temperature=selected_provider_config.get("temperature", 0.0),
+        max_tokens=selected_provider_config.get("max_tokens"),
+        request_timeout=selected_provider_config.get("request_timeout", 120),
+    )
+
+def get_task_handler_by_provider(provider: str) -> TaskHandler:
+    """
+    获取指定 provider 的任务处理器（含缓存）。
+    """
+    provider_key = provider.lower()
+    if provider_key in provider_task_handlers:
+        return provider_task_handlers[provider_key]
+
+    config = _load_provider_config(provider_key)
+    model_by_provider = config.create_model()
+    handler = TaskHandler(model_by_provider, JsonOutputParser())
+    provider_task_handlers[provider_key] = handler
+    logger.info(f"已初始化 provider={provider_key} 的任务处理器，模型={config.model_name}")
+    return handler
+
+def handler_letter_correct_with_provider(essay: str, provider: str) -> CorrectionResult:
+    """
+    使用指定 provider 进行同步作文批改。
+    """
+    logger.info(f"收到指定 provider 同步批改请求: provider={provider}, essay_len={len(essay)}")
+    selected_handler = get_task_handler_by_provider(provider)
+    result = selected_handler.process_task(task_letter, {"essay": essay})
+    return cast(CorrectionResult, result)
+
 # 异步任务处理函数
 async def handler_letter_correct_async(essay: str) -> CorrectionResult:
     """
@@ -1166,6 +1226,15 @@ async def handler_letter_correct_async(essay: str) -> CorrectionResult:
     # 直接打印完整响应到主日志
     logger.info(f"异步作文批改完成，结果: {json.dumps(result, ensure_ascii=False)}")
     
+    return cast(CorrectionResult, result)
+
+async def handler_letter_correct_async_with_provider(essay: str, provider: str) -> CorrectionResult:
+    """
+    使用指定 provider 进行异步作文批改。
+    """
+    logger.info(f"收到指定 provider 异步批改请求: provider={provider}, essay_len={len(essay)}")
+    selected_handler = get_task_handler_by_provider(provider)
+    result = await selected_handler.process_task_async(task_letter, {"essay": essay})
     return cast(CorrectionResult, result)
 
 # 流式处理函数

@@ -33,6 +33,14 @@
       "temperature": 0.0,
       "max_tokens": null,
       "request_timeout": 120
+    },
+    "dual_engine": {
+      "providers": [
+        "deepseek",
+        "openai"
+      ],
+      "primary_provider": "deepseek",
+      "secondary_provider": "openai"
     }
   }
 }
